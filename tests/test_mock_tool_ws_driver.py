@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import uvicorn
+from fastapi import FastAPI, WebSocket
 
-from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
-from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
-from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
-from realtime_transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
 from mock_tool import ws_driver
 
 pytestmark = [
@@ -41,18 +38,53 @@ def disable_ambient_auth_token(monkeypatch):
 
 @pytest.fixture
 async def live_ws_url(unused_tcp_port: int) -> str:
-    sm = AsyncMock()
-    sm.prepare = AsyncMock(return_value=PrepareOutcome(status=PrepareResult.PRE_CHECK_OK))
-    sm.commit = AsyncMock()
-    sm.cleanup = AsyncMock()
-    producer = AsyncMock()
-    producer.send = AsyncMock()
+    app = FastAPI()
 
-    app = create_app(
-        TwoPhaseOrchestrator(sm, producer, message_converter=KafkaMessageConverter()),
-        GracefulShutdown(),
-        ConnectionRegistry(),
-    )
+    @app.websocket("/ws/v1/realtime-transcriptions")
+    async def realtime_transcriptions(websocket: WebSocket) -> None:
+        cid = websocket.query_params.get("conversationId")
+        await websocket.accept()
+
+        raw = await websocket.receive_text()
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.send_json(_error_frame(cid, "E1001"))
+            await websocket.close(code=1007)
+            return
+
+        if not isinstance(msg, dict):
+            await websocket.send_json(_error_frame(cid, "E1004"))
+            await websocket.close(code=1008)
+            return
+
+        meta = msg.get("metaData")
+        payload = msg.get("payload")
+        if not isinstance(meta, dict) or not isinstance(payload, dict):
+            await websocket.send_json(_error_frame(cid, "E1003"))
+            await websocket.close(code=1008)
+            return
+
+        conversation_id = meta.get("conversationId")
+        if conversation_id is None:
+            await websocket.send_json(_error_frame(cid, "E1003"))
+            await websocket.close(code=1008)
+            return
+        if not isinstance(conversation_id, str):
+            await websocket.send_json(_error_frame(cid, "E1004"))
+            await websocket.close(code=1008)
+            return
+
+        await websocket.send_json(
+            {
+                "metaData": {
+                    "eventType": "TRANSCRIPT_ACK",
+                    "conversationId": cid,
+                }
+            }
+        )
+        await websocket.close(code=1000)
+
     config = uvicorn.Config(
         app,
         host="127.0.0.1",
@@ -85,6 +117,19 @@ async def live_ws_url(unused_tcp_port: int) -> str:
 
 async def _collect_events(_event_type: str, _data: dict) -> None:
     return None
+
+
+def _error_frame(conversation_id: str | None, code: str) -> dict[str, dict[str, str | None]]:
+    return {
+        "metaData": {
+            "eventType": "ERROR",
+            "conversationId": conversation_id,
+        },
+        "error": {
+            "code": code,
+            "message": "test stub error",
+        },
+    }
 
 
 async def test_mock_tool_e06_scenario_preserves_handshake_conversation_id(
