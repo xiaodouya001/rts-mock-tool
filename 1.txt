@@ -1,0 +1,15 @@
+export REGION=ap-east-1
+export CLUSTER_ARN='你的MSK集群ARN'
+
+aws kafka get-bootstrap-brokers \
+  --region "$REGION" \
+  --cluster-arn "$CLUSTER_ARN" \
+  --query "{Scram:BootstrapBrokerStringSaslScram,VpcScram:BootstrapBrokerStringVpcConnectivitySaslScram,Tls:BootstrapBrokerStringTls,Plain:BootstrapBrokerString}" \
+  --output table
+
+aws kafka describe-cluster-v2 \
+  --region "$REGION" \
+  --cluster-arn "$CLUSTER_ARN" \
+  --query "ClusterInfo.{ClientBroker:Provisioned.EncryptionInfo.EncryptionInTransit.ClientBroker,Scram:Provisioned.ClientAuthentication.Sasl.Scram.Enabled,Iam:Provisioned.ClientAuthentication.Sasl.Iam.Enabled,TlsAuth:Provisioned.ClientAuthentication.Tls.Enabled,Unauthenticated:Provisioned.ClientAuthentication.Unauthenticated.Enabled}" \
+  --output table
+
