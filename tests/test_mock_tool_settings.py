@@ -221,6 +221,22 @@ def test_load_env_file_supports_local_dotenv():
     assert values["MOCK_CLIENT_DEFAULT_KAFKA_TOPIC"] == "topic-b"
 
 
+def test_load_env_file_ignores_blank_comment_and_invalid_lines(tmp_path):
+    env_path = tmp_path / "mixed.env"
+    env_path.write_text(
+        "\n"
+        "   \n"
+        "# comment line\n"
+        "NOT_A_KV_LINE\n"
+        "MOCK_CLIENT_LOG_LEVEL=INFO\n",
+        encoding="utf-8",
+    )
+
+    values = mock_settings._load_env_file(env_path)
+
+    assert values == {"MOCK_CLIENT_LOG_LEVEL": "INFO"}
+
+
 def test_load_env_file_missing_returns_empty_dict(tmp_path):
     assert mock_settings._load_env_file(tmp_path / "missing.env") == {}
 
