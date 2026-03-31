@@ -13,3 +13,29 @@ aws kafka describe-cluster-v2 \
   --query "ClusterInfo.{ClientBroker:Provisioned.EncryptionInfo.EncryptionInTransit.ClientBroker,Scram:Provisioned.ClientAuthentication.Sasl.Scram.Enabled,Iam:Provisioned.ClientAuthentication.Sasl.Iam.Enabled,TlsAuth:Provisioned.ClientAuthentication.Tls.Enabled,Unauthenticated:Provisioned.ClientAuthentication.Unauthenticated.Enabled}" \
   --output table
 
+
+from aiokafka import AIOKafkaProducer
+from aiokafka.abc import AbstractTokenProvider
+from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
+
+class MSKTokenProvider(AbstractTokenProvider):
+    async def token(self):
+        token, _ = MSKAuthTokenProvider.generate_auth_token(
+            "ap-east-1",
+            aws_debug_creds=True,
+        )
+        return token
+
+producer = AIOKafkaProducer(
+    bootstrap_servers="<BootstrapBrokerStringSaslIam or VpcConnectivity IAM brokers>",
+    security_protocol="SASL_SSL",
+    sasl_mechanism="OAUTHBEARER",
+    sasl_oauth_token_provider=MSKTokenProvider(),
+)
+
+await producer.start()
+try:
+    await producer.send_and_wait("your-topic", b"hello")
+finally:
+    await producer.stop()
+
