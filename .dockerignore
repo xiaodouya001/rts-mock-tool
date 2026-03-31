@@ -1,0 +1,30 @@
+# Keep the build context minimal: only runtime inputs and the Dockerfile tree.
+**
+!requirements.txt
+!src/
+!src/**
+!docker/
+!docker/**
+
+# Re-exclude common generated Python/build/test artifacts that may exist inside
+# otherwise-allowed paths such as src/ or docker/.
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.egg-info/
+**/.eggs/
+**/build/
+**/dist/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.hypothesis/
+**/.tox/
+**/.nox/
+**/htmlcov/
+**/.coverage
+**/.coverage.*
+**/pip-wheel-metadata/
+**/.ipynb_checkpoints/
+**/.DS_Store
+**/Thumbs.db

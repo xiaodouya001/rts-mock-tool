@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTS-Mock Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/mock-console.css">
+</head>
+<body>
+
+<header>
+  <h1>RTS-Mock Console</h1>
+  <span class="tag">Realtime WS + Kafka</span>
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="livechat" onclick="switchTab('livechat')">Mock Live-Chat</button>
+    <button class="tab-btn" data-tab="scenario" onclick="switchTab('scenario')">Scenario Tests</button>
+    <button class="tab-btn" data-tab="loadtest" onclick="switchTab('loadtest')">Concurrent Load Test</button>
+  </nav>
+  <span id="sse-status" style="margin-left:auto;font-size:12px;color:var(--text2);">SSE: Connecting...</span>
+  <div class="theme-switch">
+    <label for="theme-select">Theme</label>
+    <select id="theme-select" onchange="setTheme(this.value)">
+      <option value="dracula">Dracula</option>
+      <option value="one-dark">One Dark</option>
+      <option value="night-blue">Night Blue</option>
+      <option value="high-contrast">High Contrast</option>
+    </select>
+  </div>
+</header>
+
+<!-- ====== Tab 1: Mock Live-Chat ====== -->
+<div class="tab-content active" id="tab-livechat">
+<div class="livechat-page">
+  <div class="panel livechat-controls">
+    <div class="panel-header">Mock Live-Chat Controls</div>
+    <div class="panel-body">
+      <section class="cp-card livechat-sidebar-card">
+        <div class="livechat-sidebar-tabs livechat-session-tabs" role="tablist" aria-label="Live-Chat sidebar controls">
+          <button type="button" class="livechat-session-tab is-active" id="livechat-sidebar-tab-csv" data-livechat-side-tab="csv" role="tab" aria-selected="true" aria-controls="livechat-sidebar-pane-csv" onclick="switchLiveChatSidebarTab('csv')">CSV Script</button>
+          <button type="button" class="livechat-session-tab" id="livechat-sidebar-tab-target" data-livechat-side-tab="target" role="tab" aria-selected="false" aria-controls="livechat-sidebar-pane-target" onclick="switchLiveChatSidebarTab('target')">Conversation Target</button>
+        </div>
+        <div class="livechat-sidebar-pane" id="livechat-sidebar-pane-csv" role="tabpanel" aria-labelledby="livechat-sidebar-tab-csv">
+          <input type="file" id="livechat-file-input" accept=".csv,text/csv" hidden>
+          <div class="livechat-dropzone" id="livechat-dropzone" role="button" tabindex="0" aria-label="Drop or choose a CSV file for Mock Live-Chat">
+            <div class="livechat-dropzone-title">Drop a CSV here or click to choose one</div>
+            <div class="livechat-dropzone-subtitle">
+              Spreadsheet-style samples are supported, including <code>Speaker Roles</code> + <code>Transcription</code>.
+            </div>
+          </div>
+          <div class="livechat-file-meta">
+            <div id="livechat-file-name" class="livechat-file-name">No CSV selected</div>
+            <button type="button" class="panel-header-action" onclick="triggerLiveChatFileInput()">Choose CSV</button>
+          </div>
+          <div id="livechat-preview-summary" class="livechat-preview-summary">
+            Upload a CSV to inspect recognized columns and preview the first few utterances before starting.
+          </div>
+          <div class="livechat-preview-actions">
+            <button type="button" class="panel-header-action" id="btn-livechat-preview-all" onclick="showAllLiveChatPreview()" hidden>Show All</button>
+          </div>
+          <div class="livechat-preview-table-wrap" id="livechat-preview-table-wrap" hidden>
+            <table class="livechat-preview-table">
+              <thead>
+                <tr>
+                  <th>Line</th>
+                  <th>Speaker</th>
+                  <th>Transcript</th>
+                  <th>Delay (ms)</th>
+                </tr>
+              </thead>
+              <tbody id="livechat-preview-rows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="livechat-sidebar-pane" id="livechat-sidebar-pane-target" role="tabpanel" aria-labelledby="livechat-sidebar-tab-target" hidden>
+          <div class="livechat-sidebar-copy">Configure only the destination service endpoints here.</div>
+          <div class="livechat-form-grid livechat-form-grid--sidebar-target">
+            <div>
+              <label class="cp-label" for="livechat-ws-url">WebSocket URL</label>
+              <input type="text" id="livechat-ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off">
+            </div>
+            <div>
+              <label class="cp-label" for="livechat-kafka-bootstrap">Kafka Bootstrap</label>
+              <input type="text" id="livechat-kafka-bootstrap" value="127.0.0.1:9092" autocomplete="off">
+            </div>
+            <div>
+              <label class="cp-label" for="livechat-kafka-topic">Kafka Topic</label>
+              <input type="text" id="livechat-kafka-topic" value="AI_STAGING_TRANSCRIPTION" autocomplete="off">
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <div class="panel livechat-thread-panel">
+    <div class="panel-header livechat-thread-panel-header">
+      <span>Kafka-Confirmed Conversation</span>
+      <span class="livechat-thread-panel-copy">(A fresh conversationId is generated automatically every time you start a new Mock Live-Chat run.)</span>
+    </div>
+    <div class="panel-body">
+      <div class="livechat-thread-shell">
+        <div id="livechat-thread-empty" class="livechat-empty">
+          Import a CSV and start a run. Customer messages stay on the left, Agent messages stay on the right, and session milestones show up as centered status markers.
+        </div>
+        <div id="livechat-thread" class="livechat-thread"></div>
+      </div>
+      <section class="cp-card livechat-session-card">
+        <div class="livechat-session-header">
+          <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Session Control</h3>
+          <div class="livechat-session-header-center">
+            <div class="livechat-conversation-cluster" id="livechat-conversation-cluster" hidden>
+              <div
+                class="livechat-conversation-pill"
+                id="livechat-conversation-pill"
+                role="button"
+                tabindex="0"
+                title="Click to copy conversationId"
+                onclick="copyLiveChatConversationId()"
+                onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();copyLiveChatConversationId();}"
+              >
+                <span class="livechat-conversation-prefix">conversationId:</span>
+                <span class="livechat-conversation-id" id="livechat-conversation-id-value"></span>
+              </div>
+              <button
+                type="button"
+                class="livechat-copy-cid-btn panel-header-action"
+                id="btn-livechat-copy-cid"
+                onclick="copyLiveChatConversationId()"
+                title="Copy conversationId"
+              >Copy</button>
+            </div>
+          </div>
+          <div id="livechat-status-banner" class="livechat-status livechat-status--idle" role="status" aria-live="polite">Idle</div>
+        </div>
+        <div class="livechat-session-control-box">
+          <div class="livechat-session-header-actions">
+            <div class="livechat-session-toolbar" aria-label="Live-Chat pacing controls">
+              <label class="livechat-inline-field" for="livechat-chars-per-second">
+                <span class="livechat-inline-field-label">Typing Speed (chars/sec)</span>
+                <input type="number" id="livechat-chars-per-second" value="18" min="1" max="200" step="1" title="Approx. how many characters are sent per second.">
+              </label>
+              <label class="livechat-inline-field" for="livechat-jitter-pct">
+                <span class="livechat-inline-field-label">Speed Variation (%)</span>
+                <input type="number" id="livechat-jitter-pct" value="15" min="0" max="100" step="1" title="Random variation around the base typing speed.">
+              </label>
+            </div>
+            <div class="livechat-actions livechat-actions--header">
+              <button type="button" class="success" id="btn-livechat-start">Start Live-Chat</button>
+              <button type="button" class="danger" id="btn-livechat-stop" onclick="stopLiveChat()" disabled>Stop</button>
+              <button type="button" class="panel-header-action" id="btn-livechat-clear" onclick="clearLiveChat()">Clear</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</div>
+<!-- ====== Tab 2: Scenario Tests ====== -->
+<div class="tab-content" id="tab-scenario">
+<div class="scenario-page" id="scenario-page">
+  <div class="panel control-panel" id="control-panel">
+    <div class="panel-header control-panel-header">
+      <span>Scenario Controls</span>
+    </div>
+    <div class="panel-body control-strip" id="control-panel-body">
+      <section class="cp-card scenario-control-card">
+        <div class="scenario-control-tabs livechat-session-tabs" role="tablist" aria-label="Scenario control sections">
+          <button
+            type="button"
+            class="livechat-session-tab is-active"
+            id="scenario-controls-tab-endpoint"
+            data-scenario-controls-tab="endpoint"
+            role="tab"
+            aria-selected="true"
+            aria-controls="scenario-controls-pane-endpoint"
+            onclick="switchScenarioControlsTab('endpoint')"
+          >Service Endpoint</button>
+          <button
+            type="button"
+            class="livechat-session-tab"
+            id="scenario-controls-tab-tests"
+            data-scenario-controls-tab="tests"
+            role="tab"
+            aria-selected="false"
+            aria-controls="scenario-controls-pane-tests"
+            onclick="switchScenarioControlsTab('tests')"
+          >Scenario Tests</button>
+        </div>
+        <div class="scenario-control-pane scenario-endpoint-card" id="scenario-controls-pane-endpoint" role="tabpanel" aria-labelledby="scenario-controls-tab-endpoint">
+          <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Service Endpoint</h3>
+          <label class="cp-label" for="ws-url">WebSocket URL</label>
+          <input type="text" id="ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off">
+        </div>
+        <div class="scenario-control-pane" id="scenario-controls-pane-tests" role="tabpanel" aria-labelledby="scenario-controls-tab-tests" hidden>
+          <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Scenario Tests</h3>
+          <div class="cp-scenario-toolbar">
+            <div class="cp-scenario-subcard">
+              <div class="cp-scenario-subtitle">Scenario Control Value (meaning depends on the scenario)</div>
+              <div class="cp-scenario-subhint">
+                <div><code>N-01</code>: number of <strong>SESSION_ONGOING</strong> messages to send</div>
+                <div><code>N-02</code>: number of <strong>seq values</strong> to test; each seq is sent twice</div>
+                <div><code>N-03</code>: <strong>total messages</strong> in a conversation, including the final COMPLETE</div>
+                <div><code>E-09</code>: target seq for the second out-of-order message; the actual value is <code>max(2, N)</code></div>
+                <div>All other error scenarios ignore this control value</div>
+              </div>
+              <div class="cp-nmessages">
+                <label class="cp-label" for="scenario-messages">Scenario Control Value</label>
+                <div class="cp-input-with-suffix" title="Its meaning changes by scenario; only scenarios that use it send this value to the backend">
+                  <input type="number" id="scenario-messages" value="5" min="1" max="100">
+                  <span class="cp-suffix"></span>
+                </div>
+              </div>
+              <div class="cp-scenario-btns">
+                <button type="button" class="btn-scenario" onclick="runScenario('N-01')">N-01 Normal In-Session Processing</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('N-02')">N-02 Idempotent Replay Hit</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('N-03')">N-03 Session Complete</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-09')">E-09 Sequence Out of Order</button>
+              </div>
+            </div>
+            <div class="cp-scenario-subcard cp-scenario-subcard--fixed">
+              <div class="cp-scenario-subtitle">Fixed Error Scenarios (no control value needed)</div>
+              <div class="cp-scenario-subhint">
+                <div>These scenarios directly construct a fixed handshake, protocol, or business-rule failure.</div>
+                <div>They do not read the scenario control value above.</div>
+              </div>
+              <div class="cp-scenario-btns">
+                <button type="button" class="btn-scenario" onclick="runScenario('E-01')">E-01 Missing Query conversationId</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-04')">E-04 Invalid JSON</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-05')">E-05 Invalid Enum Value</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-06')">E-06 Missing Required Field</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-07')">E-07 Field Type Mismatch</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-08')">E-08 Invalid Timestamp Format</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-14')">E-14 Query/Body conversationId Mismatch</button>
+                <button type="button" class="btn-scenario" onclick="runScenario('E-15')">E-15 Business-Rule Validation Failed</button>
+              </div>
+            </div>
+            <div class="cp-scenario-runall">
+              <button type="button" class="primary" onclick="runAllScenarios()" title="Runs N-01 -> N-02 -> N-03 -> E-01 -> E-04 -> E-05 -> E-06 -> E-07 -> E-08 -> E-09 -> E-14 -> E-15; only N-01, N-02, N-03, and E-09 use the scenario control value">Run All</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <div class="scenario-main" id="scenario-main">
+    <!-- Scenario results (shrink the bottom edge to give more space to Kafka) -->
+    <div class="panel content-panel scenario-main-split-top" id="scenario-main-top">
+      <div class="panel-header scenario-results-header">
+        <span>Scenario Results</span>
+        <button type="button" class="panel-header-action" id="btn-scenario-clear" onclick="clearScenarioResults()" title="Clear all scenario cards">Clear</button>
+      </div>
+      <div class="panel-body" id="scenario-results">
+        <p class="scenario-empty-hint">Use the buttons in "Scenario Controls" on the left to run a scenario...</p>
+      </div>
+    </div>
+    <button type="button" class="scenario-main-resizer" id="scenario-main-resizer" aria-label="Drag to resize the scenario-results and Kafka areas" title="Drag up or down to resize the Scenario Results and Kafka areas; double-click to restore the default roughly 1:2 split"></button>
+
+    <!-- Kafka viewer -->
+    <div class="panel content-panel scenario-main-split-bottom" id="scenario-main-bottom">
+      <div class="panel-header kafka-panel-banner">
+        <span>Kafka Messages</span>
+        <div class="kafka-banner-actions">
+          <span id="kafka-count" class="kafka-count-pill" title="Visible rows in the current list">0</span>
+          <button type="button" class="panel-header-action" id="btn-kafka-toggle-expand" onclick="toggleAllKafkaMessages()">Expand All</button>
+          <button type="button" class="panel-header-action" onclick="clearKafka()" title="Clear the message list and the cached conversationId options">Clear List</button>
+          <button type="button" class="panel-header-action panel-header-action--purge" onclick="purgeKafkaTopic()" title="Delete all committed records from the current Bootstrap/Topic using Kafka DeleteRecords; the consumer is stopped first and restored automatically if it was already consuming this topic">Purge Topic</button>
+        </div>
+      </div>
+      <div class="panel-body kafka-panel-body">
+        <div class="kafka-toolbar">
+          <div class="form-group" style="flex:1;min-width:140px;max-width:220px">
+            <label>Bootstrap</label>
+            <input type="text" id="kafka-bootstrap" value="127.0.0.1:9092" oninput="invalidateKafkaConversationInventory()">
+          </div>
+          <div class="form-group" style="flex:1.2;min-width:160px;max-width:280px">
+            <label>Topic</label>
+            <input type="text" id="kafka-topic" value="AI_STAGING_TRANSCRIPTION" oninput="invalidateKafkaConversationInventory()">
+          </div>
+          <div class="form-group kafka-consumer-group">
+            <label>Kafka Consumer<span id="kafka-status" class="kafka-inline-status"></span></label>
+            <div class="kafka-consume-controls">
+              <div class="kafka-cid-combobox" id="kafka-cid-combobox">
+                <input type="text" id="kafka-cid-select" class="cp-select kafka-cid-input" placeholder="All Conversations" title="Filter by conversationId. You can type to search or open the list of known conversationId values." autocomplete="off" oninput="onKafkaCidSelectInput(event)" onfocus="openKafkaCidMenu()" onkeydown="handleKafkaCidInputKeydown(event)">
+                <button type="button" class="kafka-cid-toggle" id="kafka-cid-toggle" aria-label="Toggle conversationId options" aria-expanded="false" onclick="toggleKafkaCidMenu()"></button>
+                <div class="kafka-cid-menu" id="kafka-cid-menu" hidden></div>
+              </div>
+              <div class="btn-row" style="margin:0">
+                <button type="button" class="success" id="btn-kafka-start" onclick="startKafka()">Consume Selected</button>
+                <button type="button" class="danger" id="btn-kafka-stop" onclick="stopKafka()">Stop</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="kafka-pager" id="kafka-pager">
+          <div class="kafka-pager-info">
+            <span id="kafka-pager-summary">Total 0 records</span>
+          </div>
+          <div class="kafka-pager-nav">
+            <label style="font-size:11px;color:var(--text2)">Per page</label>
+            <select id="kafka-page-size" onchange="onKafkaPageSizeChange(this.value)">
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+            <button type="button" onclick="kafkaPageGo('first')" title="First page">⏮</button>
+            <button type="button" onclick="kafkaPageGo('prev')" title="Previous page">◀</button>
+            <span id="kafka-pager-pos">1 / 1</span>
+            <button type="button" onclick="kafkaPageGo('next')" title="Next page">▶</button>
+            <button type="button" onclick="kafkaPageGo('last')" title="Last page">⏭</button>
+          </div>
+        </div>
+        <div id="kafka-messages" class="kafka-messages-scroll"></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ====== Tab 3: Concurrent Load Test ====== -->
+<div class="tab-content" id="tab-loadtest">
+<div class="load-page">
+  <div class="panel load-controls">
+    <div class="panel-header">Load-Test Controls</div>
+    <div class="panel-body">
+      <section class="cp-card load-control-card">
+        <div class="load-control-tabs livechat-session-tabs" role="tablist" aria-label="Load-test control sections">
+          <button
+            type="button"
+            class="livechat-session-tab is-active"
+            id="load-controls-tab-endpoint"
+            data-load-controls-tab="endpoint"
+            role="tab"
+            aria-selected="true"
+            aria-controls="load-controls-pane-endpoint"
+            onclick="switchLoadControlsTab('endpoint')"
+          >Service Endpoint</button>
+          <button
+            type="button"
+            class="livechat-session-tab"
+            id="load-controls-tab-parameters"
+            data-load-controls-tab="parameters"
+            role="tab"
+            aria-selected="false"
+            aria-controls="load-controls-pane-parameters"
+            onclick="switchLoadControlsTab('parameters')"
+          >Connection Parameters</button>
+        </div>
+        <div class="load-control-pane" id="load-controls-pane-endpoint" role="tabpanel" aria-labelledby="load-controls-tab-endpoint">
+          <label class="cp-label" for="load-ws-url">WebSocket URL</label>
+          <input type="text" id="load-ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off" style="width:100%">
+        </div>
+        <div class="load-control-pane" id="load-controls-pane-parameters" role="tabpanel" aria-labelledby="load-controls-tab-parameters" hidden>
+          <p class="cp-load-hint">
+            Each connection sends continuous <code>SESSION_ONGOING</code> messages by sequence number, followed by one final <code>SESSION_COMPLETE</code>.
+            After you click Start, all connections connect, send, and close in one run.
+          </p>
+          <div class="load-parameter-grid">
+            <div>
+              <label class="cp-label" for="load-benchmark-preset">Benchmark Preset</label>
+              <select id="load-benchmark-preset" class="cp-select" onchange="applyLoadBenchmarkPreset(this.value)" style="width:100%">
+                <option value="custom" selected>Custom</option>
+                <option value="benchmark-300">300-Concurrency Benchmark</option>
+                <option value="benchmark-400">400-Concurrency Benchmark</option>
+                <option value="benchmark-500">500-Concurrency Benchmark</option>
+              </select>
+            </div>
+            <div>
+              <label class="cp-label" for="load-concurrency">Concurrent Connections</label>
+              <input type="number" id="load-concurrency" value="10" min="1" max="10000" style="width:100%">
+            </div>
+            <div>
+              <label class="cp-label" for="load-messages">Messages per Connection</label>
+              <input type="number" id="load-messages" value="10" min="1" max="1000" style="width:100%">
+            </div>
+            <div>
+              <label class="cp-label" for="load-interval">Message Interval (ms)</label>
+              <input type="number" id="load-interval" value="20" min="0" max="60000" style="width:100%">
+            </div>
+            <div>
+              <label class="cp-label" for="load-rampup">Ramp-up Window (ms)</label>
+              <input type="number" id="load-rampup" value="0" min="0" max="300000" style="width:100%" title="Linear connection-start ramp-up. 0 = start all at once. Values greater than 0 spread starts evenly across the interval to avoid a burst">
+            </div>
+          </div>
+          <div class="cp-load-actions">
+            <button type="button" class="success" id="btn-load-start" onclick="startLoad()">Start Load Test</button>
+            <button type="button" class="danger" id="btn-load-stop" onclick="stopLoad()">Stop Load Test</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <div class="panel load-dashboard">
+    <div class="panel-header">
+      <span>Realtime Metrics Dashboard</span>
+    </div>
+    <div class="load-dashboard-body">
+      <div id="load-status" class="cp-load-status cp-load-status--idle" role="status" aria-live="polite">
+        Idle. Once started, this panel shows run status and elapsed time. After the run finishes, it turns green and shows Completed.
+      </div>
+      <div class="metric-groups">
+        <section class="metric-group">
+          <h4 class="metric-group-title">Throughput &amp; Connections</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card"><div class="value" id="stat-sent">0</div><div class="label">Sent</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-active">0</div><div class="label">Active Connections</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-tps">0</div><div class="label">ACK TPS</div></div>
+          </div>
+        </section>
+        <section class="metric-group">
+          <h4 class="metric-group-title">Result Quality</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card green"><div class="value" id="stat-ack">0</div><div class="label">ACK</div></div>
+            <div class="load-stat-card red"><div class="value" id="stat-error">0</div><div class="label">Error Events</div></div>
+            <div class="load-stat-card load-stat-card--ghost" aria-hidden="true"></div>
+          </div>
+        </section>
+        <section class="metric-group">
+          <h4 class="metric-group-title">End-to-End Latency</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card orange"><div class="value" id="stat-p50">0</div><div class="label">P50 (ms)</div></div>
+            <div class="load-stat-card orange"><div class="value" id="stat-p95">0</div><div class="label">P95 (ms)</div></div>
+            <div class="load-stat-card orange"><div class="value" id="stat-p99">0</div><div class="label">P99 (ms)</div></div>
+          </div>
+        </section>
+        <section class="metric-group">
+          <h4 class="metric-group-title">Server Processing Latency (ACK Samples)</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card"><div class="value" id="stat-server-p50">0</div><div class="label">P50 (ms)</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-server-p95">0</div><div class="label">P95 (ms)</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-server-p99">0</div><div class="label">P99 (ms)</div></div>
+          </div>
+        </section>
+      </div>
+      <div class="play-insights">
+        <section class="insight-card">
+          <div class="insight-title">Latency Heatstrip (P95)</div>
+          <div class="heatstrip" id="latency-heatstrip"></div>
+        </section>
+        <section class="insight-card">
+          <div class="insight-title">Top Error Codes</div>
+          <ul class="error-rank-list" id="error-rank-list"></ul>
+        </section>
+        <section class="insight-card">
+          <div class="insight-title">Connection Lifecycle Timeline</div>
+          <div class="lifecycle-line" id="lifecycle-line"></div>
+        </section>
+      </div>
+      <div class="load-errors-section" id="load-errors-panel" style="display:none" aria-live="polite">
+        <div class="title">Recent Load-Test Errors (keeps about 100; check the terminal for full WARNING logs)</div>
+        <pre id="load-errors-pre"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script src="/static/mock-console.js"></script>
+</body>
+</html>
+
+

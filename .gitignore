@@ -1,0 +1,23 @@
+# Demo output
+demo_output.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Env
+.env
+.venv/
+venv/
+
+# Others
+.vscode
+.cursor
+cursor-roles/

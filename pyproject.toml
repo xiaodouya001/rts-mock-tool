@@ -1,0 +1,76 @@
+[project]
+name = "rts-mock-tool"
+version = "1.0.0"
+description = "Mock tooling for Realtime Transcribe Service"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiokafka[lz4]>=0.10.0",
+    "cramjam>=2.8.0",
+    "fastapi>=0.100.0",
+    "PyJWT>=2.8.0",
+    "structlog>=24.0",
+    "uvicorn[standard]>=0.22.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "orjson>=3.9.0",
+    "redis>=5.0.0",
+    "pydantic-settings>=2.0",
+    "httpx>=0.27.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+mock-tool-server = "mock_tool.server:main"
+mock-tool-generate-jwt = "mock_tool.generate_jwt:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mock_tool*"]
+
+[tool.setuptools.package-data]
+mock_tool = ["static/*.html", "static/*.css", "static/*.js", "samples/*.csv"]
+
+# Optional Poetry workflow; use either Poetry or pip/venv
+[tool.poetry]
+name = "rts-mock-tool"
+version = "0.1.0"
+description = "Mock tooling for Realtime Transcribe Service"
+packages = [
+    {include = "mock_tool", from = "src"},
+]
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+aiokafka = {extras = ["lz4"], version = ">=0.10.0"}
+cramjam = ">=2.8.0"
+fastapi = ">=0.100.0"
+PyJWT = ">=2.8.0"
+structlog = ">=24.0"
+uvicorn = {extras = ["standard"], version = ">=0.22.0"}
+websockets = ">=12.0"
+
+[tool.poetry.group.dev.dependencies]
+orjson = ">=3.9.0"
+redis = ">=5.0.0"
+pydantic-settings = ">=2.0"
+httpx = ">=0.27.0"
+pytest = ">=7.0.0"
+pytest-asyncio = ">=0.21.0"
