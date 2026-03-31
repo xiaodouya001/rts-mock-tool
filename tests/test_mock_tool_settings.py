@@ -219,3 +219,61 @@ def test_load_env_file_supports_local_dotenv():
 
     assert values["MOCK_CLIENT_LOG_LEVEL"] == "WARNING"
     assert values["MOCK_CLIENT_DEFAULT_KAFKA_TOPIC"] == "topic-b"
+
+
+def test_load_env_file_missing_returns_empty_dict(tmp_path):
+    assert mock_settings._load_env_file(tmp_path / "missing.env") == {}
+
+
+def test_require_non_empty_rejects_blank_value():
+    with pytest.raises(ValueError, match="TEST_NAME must not be empty"):
+        mock_settings._require_non_empty("TEST_NAME", "   ")
+
+
+def test_parse_port_rejects_non_integer():
+    with pytest.raises(ValueError, match="MOCK_CLIENT_PORT must be an integer"):
+        mock_settings._parse_port("MOCK_CLIENT_PORT", "abc")
+
+
+def test_parse_log_level_rejects_unknown_value():
+    with pytest.raises(ValueError, match="MOCK_CLIENT_LOG_LEVEL must be one of"):
+        mock_settings._parse_log_level("MOCK_CLIENT_LOG_LEVEL", "verbose")
+
+
+def test_parse_log_format_rejects_unknown_value():
+    with pytest.raises(ValueError, match="MOCK_CLIENT_LOG_FORMAT must be one of"):
+        mock_settings._parse_log_format("MOCK_CLIENT_LOG_FORMAT", "pretty")
+
+
+def test_parse_bool_rejects_unknown_value():
+    with pytest.raises(ValueError, match="AUTH_ENABLED must be one of"):
+        mock_settings._parse_bool("AUTH_ENABLED", "maybe")
+
+
+def test_parse_positive_int_rejects_non_integer():
+    with pytest.raises(ValueError, match="MOCK_CLIENT_AUTH_TTL_DAYS must be an integer"):
+        mock_settings._parse_positive_int("MOCK_CLIENT_AUTH_TTL_DAYS", "abc")
+
+
+def test_parse_positive_int_rejects_zero_and_negative():
+    with pytest.raises(ValueError, match="MOCK_CLIENT_AUTH_TTL_DAYS must be greater than 0"):
+        mock_settings._parse_positive_int("MOCK_CLIENT_AUTH_TTL_DAYS", "0")
+
+
+def test_build_auth_token_returns_none_when_signing_material_missing():
+    settings = mock_settings.MockClientSettings(
+        host="0.0.0.0",
+        port=8088,
+        log_level="INFO",
+        log_format="auto",
+        default_ws_url="ws://unit-test",
+        auth_enabled=True,
+        auth_token=None,
+        auth_signing_material=None,
+        auth_subject="mock-client",
+        auth_ttl_days=30,
+        default_kafka_bootstrap="127.0.0.1:9092",
+        default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+    )
+
+    assert mock_settings.build_auth_token(settings) is None
