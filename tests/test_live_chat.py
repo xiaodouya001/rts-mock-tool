@@ -28,6 +28,7 @@ def _patch_live_chat_kafka_settings(monkeypatch):
             kafka_bootstrap="127.0.0.1:9092",
             kafka_topic="AI_STAGING_TRANSCRIPTION",
             default_ws_url="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
+            kafka_mode="local",
         ),
     )
 
@@ -163,6 +164,69 @@ async def test_live_chat_manager_runs_rows_and_auto_completes(monkeypatch):
         event_type == "live_status" and data["state"] == "completed"
         for event_type, data in emitted
     )
+
+
+@pytest.mark.asyncio
+async def test_live_chat_kafka_consumer_merges_connection_extra_kwargs(monkeypatch):
+    """Live-Chat must pass the same MSK/local Kafka wiring as KafkaViewer (Scenario tab)."""
+    _FakeKafkaConsumer.instances.clear()
+    last_kwargs: dict = {}
+
+    class _CapturingConsumer(_FakeKafkaConsumer):
+        def __init__(self, *args, **kwargs):
+            last_kwargs.clear()
+            last_kwargs.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr("mock_tool.live_chat.AIOKafkaConsumer", _CapturingConsumer)
+    monkeypatch.setattr(
+        "mock_tool.live_chat.kafka_connection_extra_kwargs",
+        lambda _settings: {
+            "security_protocol": "SASL_SSL",
+            "sasl_mechanism": "OAUTHBEARER",
+            "_test_marker": True,
+        },
+    )
+
+    manager = LiveChatManager(emit=AsyncMock())
+    ws = SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr("mock_tool.live_chat._open_ws", AsyncMock(return_value=ws))
+
+    async def fake_send_and_recv(_ws, message, *, on_sent=None):
+        if on_sent is not None:
+            on_sent()
+        consumer = _FakeKafkaConsumer.instances[-1]
+        sequence_number = message["payload"]["sequenceNumber"]
+        consumer.queue.put_nowait(
+            SimpleNamespace(
+                partition=0,
+                offset=sequence_number,
+                value=message,
+                timestamp=1_710_000_000_000,
+            )
+        )
+        ack_type = "EOL_ACK" if message["metaData"]["eventType"] == "SESSION_COMPLETE" else "TRANSCRIPT_ACK"
+        return {"metaData": {"eventType": ack_type}}
+
+    monkeypatch.setattr("mock_tool.live_chat._send_and_recv", fake_send_and_recv)
+
+    request = LiveChatStartRequest(
+        csv_text="speaker,transcript\nAgent,Hello\n",
+        csv_filename="chat.csv",
+        conversation_id="live-chat-kw",
+        chars_per_second=20,
+        pace_jitter_pct=0,
+    )
+
+    await manager.start(request)
+    assert manager._task is not None
+    await manager._task
+
+    assert last_kwargs.get("security_protocol") == "SASL_SSL"
+    assert last_kwargs.get("sasl_mechanism") == "OAUTHBEARER"
+    assert last_kwargs.get("_test_marker") is True
+    assert last_kwargs.get("bootstrap_servers") == "127.0.0.1:9092"
+    assert last_kwargs.get("auto_offset_reset") == "latest"
 
 
 @pytest.mark.asyncio

@@ -15,9 +15,11 @@ from aiokafka import AIOKafkaConsumer
 from pydantic import BaseModel, Field
 
 try:
+    from .kafka_connection import kafka_connection_extra_kwargs
     from .settings import get_settings
     from .ws_driver import _open_ws, _random_hex, _send_and_recv, _utc_now_iso
 except ImportError:  # pragma: no cover - direct script execution fallback
+    from kafka_connection import kafka_connection_extra_kwargs
     from settings import get_settings
     from ws_driver import _open_ws, _random_hex, _send_and_recv, _utc_now_iso
 
@@ -492,15 +494,16 @@ class LiveChatManager:
         rng = random.Random()
         complete_seen = asyncio.Event()
         pending_sent_at: dict[int, float] = {}
-        consumer = AIOKafkaConsumer(
-            self._state.kafka_topic,
-            bootstrap_servers=self._state.kafka_bootstrap,
-            group_id=None,
-            auto_offset_reset="latest",
-            enable_auto_commit=False,
-            value_deserializer=lambda value: json.loads(value) if value else None,
-            key_deserializer=lambda key: key.decode("utf-8") if key else None,
-        )
+        consumer_kw: dict[str, Any] = {
+            "bootstrap_servers": self._state.kafka_bootstrap,
+            "group_id": None,
+            "auto_offset_reset": "latest",
+            "enable_auto_commit": False,
+            "value_deserializer": lambda value: json.loads(value) if value else None,
+            "key_deserializer": lambda key: key.decode("utf-8") if key else None,
+        }
+        consumer_kw.update(kafka_connection_extra_kwargs(get_settings()))
+        consumer = AIOKafkaConsumer(self._state.kafka_topic, **consumer_kw)
         ws = None
         consumer_task: asyncio.Task[None] | None = None
 
