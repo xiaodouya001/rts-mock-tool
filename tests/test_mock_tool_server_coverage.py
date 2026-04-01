@@ -439,67 +439,6 @@ async def test_kafka_stop_handles_missing_viewer(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_kafka_purge_handles_error_non_ok_resume_and_stopped(monkeypatch):
-    broadcasts: list[tuple[str, dict]] = []
-    queue_waiter = asyncio.create_task(asyncio.Event().wait())
-    viewer = SimpleNamespace(
-        bootstrap_servers="127.0.0.1:9092",
-        topic="topic-a",
-        conversation_id="cid-1",
-        stop=AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(server_mod, "_broadcast_sse", lambda event_type, data: broadcasts.append((event_type, data)))
-    monkeypatch.setattr(server_mod, "_kafka_viewer", viewer)
-    monkeypatch.setattr(server_mod, "_kafka_forward_task", queue_waiter)
-
-    monkeypatch.setattr(
-        server_mod,
-        "purge_topic_messages",
-        AsyncMock(side_effect=RuntimeError("purge failed")),
-    )
-    result = await server_mod.kafka_purge("127.0.0.1:9092", "topic-a")
-    assert result == {"status": "error", "error": "purge failed"}
-    with suppress(asyncio.CancelledError):
-        await queue_waiter
-
-    monkeypatch.setattr(server_mod, "_kafka_viewer", None)
-    monkeypatch.setattr(server_mod, "_kafka_forward_task", None)
-    monkeypatch.setattr(
-        server_mod,
-        "purge_topic_messages",
-        AsyncMock(return_value={"status": "error", "error": "topic missing"}),
-    )
-    result = await server_mod.kafka_purge("127.0.0.1:9092", "topic-a")
-    assert result == {"status": "error", "error": "topic missing"}
-
-    monkeypatch.setattr(
-        server_mod,
-        "purge_topic_messages",
-        AsyncMock(return_value={"status": "ok", "topic": "topic-a"}),
-    )
-    result = await server_mod.kafka_purge("127.0.0.1:9092", "topic-a", restart_consumer=False)
-    assert result["consumer"] == "stopped"
-
-    viewer = SimpleNamespace(
-        bootstrap_servers="127.0.0.1:9092",
-        topic="topic-a",
-        conversation_id="cid-1",
-        stop=AsyncMock(return_value=None),
-    )
-    monkeypatch.setattr(server_mod, "_kafka_viewer", viewer)
-    monkeypatch.setattr(
-        server_mod,
-        "kafka_start",
-        AsyncMock(return_value={"status": "kafka_consumer_started", "topic": "topic-a", "conversation_id": "cid-1"}),
-    )
-    result = await server_mod.kafka_purge("127.0.0.1:9092", "topic-a")
-
-    assert result["purge"]["status"] == "ok"
-    assert result["status"] == "kafka_consumer_started"
-    assert any(event == "kafka_purged" for event, _ in broadcasts)
-
-
-@pytest.mark.asyncio
 async def test_stats_pusher_emits_stats_then_propagates_cancellation(monkeypatch):
     broadcasts: list[tuple[str, dict]] = []
     original_sleep = server_mod.asyncio.sleep

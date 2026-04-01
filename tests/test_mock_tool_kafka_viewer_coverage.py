@@ -83,6 +83,9 @@ class _FakeKafkaConsumer:
         self.started = False
         self.stopped = False
         self.assigned = None
+        self.subscribed_topics: list[str] | None = None
+        # Partition ids returned after subscribe()+getmany() (local metadata discovery).
+        self.metadata_partition_nums: list[int] | None = None
         self.end_map = {}
         self.batch = {}
         self.positions = {}
@@ -93,13 +96,27 @@ class _FakeKafkaConsumer:
     async def stop(self) -> None:
         self.stopped = True
 
+    def subscribe(self, topics) -> None:
+        self.subscribed_topics = list(topics)
+
+    def assignment(self):
+        return set(self.assigned) if self.assigned else set()
+
+    def partitions_for_topic(self, _topic):
+        return None
+
     def assign(self, tps) -> None:
         self.assigned = list(tps)
 
     async def end_offsets(self, tps):
         return {tp: self.end_map[tp] for tp in tps}
 
-    async def getmany(self, *tps, timeout_ms: int, max_records: int):
+    async def getmany(self, *tps, timeout_ms: int = 0, max_records: int | None = None):
+        if not tps and self.subscribed_topics is not None:
+            topic = self.subscribed_topics[0]
+            nums = self.metadata_partition_nums if self.metadata_partition_nums is not None else [0]
+            self.assigned = [kv.TopicPartition(topic, p) for p in nums]
+            return {}
         if isinstance(self.batch, list):
             return self.batch.pop(0)
         return self.batch
@@ -115,7 +132,6 @@ class _FakeAdmin:
         self.started = False
         self.closed = False
         self.infos = []
-        self.low_after = {}
 
     async def start(self) -> None:
         self.started = True
@@ -125,9 +141,6 @@ class _FakeAdmin:
 
     async def describe_topics(self, _topics):
         return self.infos
-
-    async def delete_records(self, _to_delete, timeout_ms: int):
-        return self.low_after
 
 
 @pytest.mark.asyncio
@@ -313,7 +326,11 @@ async def test_scan_topic_conversations_returns_metadata_errors(monkeypatch, inf
     monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setattr(kv, "for_code", lambda _code: RuntimeError())
 
-    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a")
+    result = await kv.scan_topic_conversations(
+        "127.0.0.1:9092",
+        "topic-a",
+        kafka_mode="aws_msk",
+    )
 
     assert result["status"] == "error"
     assert error_text in result["error"]
@@ -327,7 +344,11 @@ async def test_scan_topic_conversations_returns_empty_when_no_partitions(monkeyp
     admin.infos = [{"error_code": 0, "partitions": []}]
     monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
 
-    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a")
+    result = await kv.scan_topic_conversations(
+        "127.0.0.1:9092",
+        "topic-a",
+        kafka_mode="aws_msk",
+    )
 
     assert result == {
         "status": "ok",
@@ -347,7 +368,11 @@ async def test_scan_topic_conversations_returns_empty_when_offsets_are_zero(monk
     monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setattr(kv, "AIOKafkaConsumer", lambda **_kwargs: consumer)
 
-    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a")
+    result = await kv.scan_topic_conversations(
+        "127.0.0.1:9092",
+        "topic-a",
+        kafka_mode="aws_msk",
+    )
 
     assert result["conversation_count"] == 0
     assert consumer.started is True
@@ -372,7 +397,11 @@ async def test_scan_topic_conversations_collects_counts_from_metadata_and_key(mo
     monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setattr(kv, "AIOKafkaConsumer", lambda **_kwargs: consumer)
 
-    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a")
+    result = await kv.scan_topic_conversations(
+        "127.0.0.1:9092",
+        "topic-a",
+        kafka_mode="aws_msk",
+    )
 
     assert result == {
         "status": "ok",
@@ -392,7 +421,11 @@ async def test_scan_topic_conversations_handles_for_code_failure_and_multiple_ba
     monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setattr(kv, "for_code", MagicMock(side_effect=RuntimeError("boom")))
 
-    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a")
+    result = await kv.scan_topic_conversations(
+        "127.0.0.1:9092",
+        "topic-a",
+        kafka_mode="aws_msk",
+    )
 
     assert "error_code=42" in result["error"]
 
@@ -416,91 +449,92 @@ async def test_scan_topic_conversations_handles_for_code_failure_and_multiple_ba
     monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
     monkeypatch.setattr(kv, "AIOKafkaConsumer", lambda **_kwargs: consumer)
 
-    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a")
+    result = await kv.scan_topic_conversations(
+        "127.0.0.1:9092",
+        "topic-a",
+        kafka_mode="aws_msk",
+    )
 
     assert result["conversation_count"] == 1
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("infos", "error_text"),
-    [
-        ([], "Unable to fetch topic metadata"),
-        ([{"error_code": 42, "partitions": []}], "Topic unavailable"),
-        ([{"error_code": 0, "partitions": []}], "Topic has no partitions"),
-    ],
-)
-async def test_purge_topic_messages_returns_metadata_errors(monkeypatch, infos, error_text):
-    admin = _FakeAdmin()
-    admin.infos = infos
-    monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
-    monkeypatch.setattr(kv, "for_code", lambda _code: RuntimeError())
+async def test_scan_topic_conversations_local_uses_consumer_not_admin(monkeypatch):
+    """local mode: partition list from subscribe/poll; scanning uses a second consumer."""
+    created: list[_FakeKafkaConsumer] = []
+    tp = kv.TopicPartition("topic-a", 0)
 
-    result = await kv.purge_topic_messages("127.0.0.1:9092", "topic-a")
+    def factory(**kwargs):
+        c = _FakeKafkaConsumer(**kwargs)
+        if len(created) == 1:
+            c.end_map = {tp: 0}
+        created.append(c)
+        return c
+
+    def _reject_admin(**_kwargs):
+        raise AssertionError("no admin in local scan")
+
+    monkeypatch.setattr(kv, "AIOKafkaAdminClient", _reject_admin)
+    monkeypatch.setattr(kv, "AIOKafkaConsumer", factory)
+
+    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a", kafka_mode="local")
+
+    assert result["conversation_count"] == 0
+    assert len(created) == 2
+    meta, scan_c = created[0], created[1]
+    assert meta.subscribed_topics == ["topic-a"]
+    assert scan_c.assigned == [tp]
+
+
+@pytest.mark.asyncio
+async def test_list_topic_partitions_local_uses_partitions_for_topic_fallback(monkeypatch):
+    """Cover consumer path when assignment stays empty until metadata lists partitions."""
+
+    class _LazyMetaConsumer(_FakeKafkaConsumer):
+        def partitions_for_topic(self, topic: str):
+            return {0} if topic == "topic-a" else None
+
+        async def getmany(self, *tps, timeout_ms: int = 0, max_records: int | None = None):
+            if not tps and self.subscribed_topics is not None:
+                return {}
+            return await super().getmany(*tps, timeout_ms=timeout_ms, max_records=max_records)
+
+    created: list[_FakeKafkaConsumer] = []
+    tp = kv.TopicPartition("topic-a", 0)
+
+    def factory(**kwargs):
+        c = _LazyMetaConsumer(**kwargs)
+        if len(created) == 1:
+            c.end_map = {tp: 0}
+        created.append(c)
+        return c
+
+    def _no_admin(**_k):
+        raise AssertionError("admin")
+
+    monkeypatch.setattr(kv, "AIOKafkaAdminClient", _no_admin)
+    monkeypatch.setattr(kv, "AIOKafkaConsumer", factory)
+
+    result = await kv.scan_topic_conversations("127.0.0.1:9092", "topic-a", kafka_mode="local")
+
+    assert result["conversation_count"] == 0
+    assert len(created) == 2
+
+
+@pytest.mark.asyncio
+async def test_list_topic_partitions_local_errors_when_no_partitions_found(monkeypatch):
+    class _NoPartitionsConsumer(_FakeKafkaConsumer):
+        async def getmany(self, *tps, timeout_ms: int = 0, max_records: int | None = None):
+            if not tps and self.subscribed_topics is not None:
+                return {}
+            return await super().getmany(*tps, timeout_ms=timeout_ms, max_records=max_records)
+
+        def partitions_for_topic(self, _topic):
+            return None
+
+    monkeypatch.setattr(kv, "AIOKafkaConsumer", lambda **kw: _NoPartitionsConsumer(**kw))
+
+    result = await kv.scan_topic_conversations("127.0.0.1:9092", "missing-topic", kafka_mode="local")
 
     assert result["status"] == "error"
-    assert error_text in result["error"]
-
-
-@pytest.mark.asyncio
-async def test_purge_topic_messages_reports_already_empty_topic(monkeypatch):
-    admin_meta = _FakeAdmin()
-    admin_meta.infos = [{"error_code": 0, "partitions": [{"partition": 0}]}]
-    consumer = _FakeKafkaConsumer()
-    tp = kv.TopicPartition("topic-a", 0)
-    consumer.end_map = {tp: 0}
-
-    monkeypatch.setattr(
-        kv,
-        "AIOKafkaAdminClient",
-        lambda **_kwargs: admin_meta,
-    )
-    monkeypatch.setattr(kv, "AIOKafkaConsumer", lambda **_kwargs: consumer)
-
-    result = await kv.purge_topic_messages("127.0.0.1:9092", "topic-a")
-
-    assert result == {
-        "status": "ok",
-        "topic": "topic-a",
-        "message": "The topic already has no messages to delete",
-        "partitions_truncated": 0,
-    }
-
-
-@pytest.mark.asyncio
-async def test_purge_topic_messages_deletes_records(monkeypatch):
-    admin_meta = _FakeAdmin()
-    admin_meta.infos = [{"error_code": 0, "partitions": [{"partition": 0}, {"partition": 1}]}]
-    admin_delete = _FakeAdmin()
-    consumer = _FakeKafkaConsumer()
-    tp0 = kv.TopicPartition("topic-a", 0)
-    tp1 = kv.TopicPartition("topic-a", 1)
-    consumer.end_map = {tp0: 5, tp1: 0}
-    admin_delete.low_after = {tp0: 5}
-    admins = [admin_meta, admin_delete]
-
-    monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admins.pop(0))
-    monkeypatch.setattr(kv, "AIOKafkaConsumer", lambda **_kwargs: consumer)
-
-    result = await kv.purge_topic_messages("127.0.0.1:9092", "topic-a")
-
-    assert result == {
-        "status": "ok",
-        "topic": "topic-a",
-        "message": "Committed messages were deleted with DeleteRecords",
-        "partitions_truncated": 1,
-        "low_watermark_after": {"0": 5},
-    }
-    assert consumer.stopped is True
-
-
-@pytest.mark.asyncio
-async def test_purge_topic_messages_handles_for_code_failure(monkeypatch):
-    admin = _FakeAdmin()
-    admin.infos = [{"error_code": 42, "partitions": [{"partition": 0}]}]
-    monkeypatch.setattr(kv, "AIOKafkaAdminClient", lambda **_kwargs: admin)
-    monkeypatch.setattr(kv, "for_code", MagicMock(side_effect=RuntimeError("boom")))
-
-    result = await kv.purge_topic_messages("127.0.0.1:9092", "topic-a")
-
-    assert "error_code=42" in result["error"]
+    assert "Unable to discover partitions" in result["error"]

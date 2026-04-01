@@ -6,15 +6,108 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from aiokafka import AIOKafkaConsumer
 from aiokafka.admin import AIOKafkaAdminClient
-from aiokafka.admin.records_to_delete import RecordsToDelete
 from aiokafka.errors import for_code
 from aiokafka.structs import TopicPartition
 
 log = logging.getLogger(__name__)
+
+
+async def _list_topic_partitions_via_admin(
+    bootstrap_servers: str,
+    topic: str,
+    extra: dict[str, Any],
+) -> tuple[list[TopicPartition] | None, dict[str, Any] | None]:
+    """Return ``(topic_partitions, error_response)`` using Admin ``describe_topics``."""
+    admin_meta = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers, **extra)
+    await admin_meta.start()
+    try:
+        infos = await admin_meta.describe_topics([topic])
+    finally:
+        await admin_meta.close()
+
+    if not infos:
+        return None, {
+            "status": "error",
+            "error": f"Unable to fetch topic metadata (cluster unreachable or request rejected): {topic}",
+        }
+
+    meta = infos[0]
+    err_code = meta.get("error_code", 0)
+    if err_code:
+        try:
+            err_name = type(for_code(err_code)).__name__
+        except Exception:
+            err_name = f"error_code={err_code}"
+        return None, {
+            "status": "error",
+            "error": f"Topic unavailable ({err_name}): {topic}",
+        }
+
+    partitions = meta.get("partitions") or []
+    if not partitions:
+        return [], None
+
+    tps = [TopicPartition(topic, p["partition"]) for p in partitions]
+    return tps, None
+
+
+async def _list_topic_partitions_via_consumer(
+    bootstrap_servers: str,
+    topic: str,
+    extra: dict[str, Any],
+    *,
+    poll_timeout_ms: int = 500,
+    max_wait_rounds: int = 200,
+) -> tuple[list[TopicPartition] | None, dict[str, Any] | None]:
+    """Discover partitions with a plain consumer (subscribe + poll); no Admin metadata."""
+    consumer_kw: dict[str, Any] = {
+        "bootstrap_servers": bootstrap_servers,
+        "enable_auto_commit": False,
+        "auto_offset_reset": "earliest",
+        "request_timeout_ms": 30_000,
+    }
+    consumer_kw.update(extra)
+    consumer = AIOKafkaConsumer(**consumer_kw)
+    await consumer.start()
+    try:
+        consumer.subscribe([topic])
+        assigned: set[TopicPartition] = set()
+        for _ in range(max_wait_rounds):
+            await consumer.getmany(timeout_ms=poll_timeout_ms)
+            assigned = consumer.assignment()
+            if assigned:
+                break
+        if not assigned:
+            raw = consumer.partitions_for_topic(topic)
+            if raw:
+                assigned = {TopicPartition(topic, p) for p in raw}
+        if not assigned:
+            return None, {
+                "status": "error",
+                "error": (
+                    f"Unable to discover partitions for topic (ensure it exists and is reachable): {topic}"
+                ),
+            }
+        return sorted(assigned, key=lambda tp: tp.partition), None
+    finally:
+        await consumer.stop()
+
+
+async def _resolve_topic_partitions(
+    bootstrap_servers: str,
+    topic: str,
+    *,
+    connection_extra_kwargs: dict[str, Any] | None,
+    kafka_mode: Literal["local", "aws_msk"],
+) -> tuple[list[TopicPartition] | None, dict[str, Any] | None]:
+    extra = connection_extra_kwargs or {}
+    if kafka_mode == "local":
+        return await _list_topic_partitions_via_consumer(bootstrap_servers, topic, extra)
+    return await _list_topic_partitions_via_admin(bootstrap_servers, topic, extra)
 
 
 class KafkaViewer:
@@ -26,10 +119,13 @@ class KafkaViewer:
         topic: str,
         conversation_id: str | None = None,
         on_error: Any = None,
+        *,
+        connection_extra_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self._bootstrap = bootstrap_servers
         self._topic = topic
         self._conversation_id = conversation_id.strip() if conversation_id else None
+        self._connection_extra_kwargs = connection_extra_kwargs or {}
         self._consumer: AIOKafkaConsumer | None = None
         self._subscribers: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._task: asyncio.Task | None = None
@@ -59,15 +155,16 @@ class KafkaViewer:
 
     async def start(self) -> None:
         """Start the Kafka consume loop."""
-        self._consumer = AIOKafkaConsumer(
-            self._topic,
-            bootstrap_servers=self._bootstrap,
-            group_id=None,
-            auto_offset_reset="earliest",
-            enable_auto_commit=False,
-            value_deserializer=lambda v: json.loads(v) if v else None,
-            key_deserializer=lambda k: k.decode("utf-8") if k else None,
-        )
+        consumer_kwargs: dict[str, Any] = {
+            "bootstrap_servers": self._bootstrap,
+            "group_id": None,
+            "auto_offset_reset": "earliest",
+            "enable_auto_commit": False,
+            "value_deserializer": lambda v: json.loads(v) if v else None,
+            "key_deserializer": lambda k: k.decode("utf-8") if k else None,
+        }
+        consumer_kwargs.update(self._connection_extra_kwargs)
+        self._consumer = AIOKafkaConsumer(self._topic, **consumer_kwargs)
         await self._consumer.start()
         self._task = asyncio.create_task(self._consume_loop())
 
@@ -133,50 +230,37 @@ async def scan_topic_conversations(
     *,
     poll_timeout_ms: int = 250,
     max_records: int = 1000,
+    connection_extra_kwargs: dict[str, Any] | None = None,
+    kafka_mode: Literal["local", "aws_msk"] = "local",
 ) -> dict[str, Any]:
     """Scan one topic from earliest to end and summarize unique conversationId values."""
-    admin_meta = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
-    await admin_meta.start()
-    try:
-        infos = await admin_meta.describe_topics([topic])
-    finally:
-        await admin_meta.close()
-
-    if not infos:
-        return {
-            "status": "error",
-            "error": f"Unable to fetch topic metadata (cluster unreachable or request rejected): {topic}",
-        }
-
-    meta = infos[0]
-    err_code = meta.get("error_code", 0)
-    if err_code:
-        try:
-            err_name = type(for_code(err_code)).__name__
-        except Exception:
-            err_name = f"error_code={err_code}"
-        return {
-            "status": "error",
-            "error": f"Topic unavailable ({err_name}): {topic}",
-        }
-
-    partitions = meta.get("partitions") or []
-    if not partitions:
+    extra = connection_extra_kwargs or {}
+    tps, meta_err = await _resolve_topic_partitions(
+        bootstrap_servers,
+        topic,
+        connection_extra_kwargs=extra,
+        kafka_mode=kafka_mode,
+    )
+    if meta_err is not None:
+        return meta_err
+    assert tps is not None
+    if not tps:
         return {
             "status": "ok",
             "topic": topic,
             "conversation_count": 0,
             "conversations": [],
         }
-
-    tps = [TopicPartition(topic, p["partition"]) for p in partitions]
-    consumer = AIOKafkaConsumer(
-        bootstrap_servers=bootstrap_servers,
-        enable_auto_commit=False,
-        auto_offset_reset="earliest",
-        value_deserializer=lambda v: json.loads(v) if v else None,
-        key_deserializer=lambda k: k.decode("utf-8") if k else None,
-    )
+    scan_consumer_kw: dict[str, Any] = {
+        "bootstrap_servers": bootstrap_servers,
+        "enable_auto_commit": False,
+        "auto_offset_reset": "earliest",
+        "value_deserializer": lambda v: json.loads(v) if v else None,
+        "key_deserializer": lambda k: k.decode("utf-8") if k else None,
+        "request_timeout_ms": 30_000,
+    }
+    scan_consumer_kw.update(extra)
+    consumer = AIOKafkaConsumer(**scan_consumer_kw)
     await consumer.start()
     try:
         consumer.assign(tps)
@@ -217,93 +301,4 @@ async def scan_topic_conversations(
         "topic": topic,
         "conversation_count": len(conversations),
         "conversations": conversations,
-    }
-
-
-async def purge_topic_messages(
-    bootstrap_servers: str,
-    topic: str,
-    *,
-    timeout_ms: int = 60_000,
-) -> dict[str, Any]:
-    """Delete all committed messages in a topic using the Kafka DeleteRecords API.
-
-    This requires broker support for the API version and is mainly used in development.
-    If the topic does not exist or already has no data, the returned status reflects that.
-
-    Partition metadata comes from Admin ``describe_topics``; relying on
-    ``Consumer.partitions_for_topic`` is not safe here because it is often ``None`` when
-    the consumer has not been assigned.
-    """
-    admin_meta = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
-    await admin_meta.start()
-    try:
-        infos = await admin_meta.describe_topics([topic])
-    finally:
-        await admin_meta.close()
-
-    if not infos:
-        return {
-            "status": "error",
-            "error": f"Unable to fetch topic metadata (cluster unreachable or request rejected): {topic}",
-        }
-
-    meta = infos[0]
-    err_code = meta.get("error_code", 0)
-    if err_code:
-        try:
-            err_name = type(for_code(err_code)).__name__
-        except Exception:
-            err_name = f"error_code={err_code}"
-        return {
-            "status": "error",
-            "error": f"Topic unavailable ({err_name}): {topic}",
-        }
-
-    partitions = meta.get("partitions") or []
-    if not partitions:
-        return {
-            "status": "error",
-            "error": f"Topic has no partitions (it may not have been created yet): {topic}",
-        }
-
-    tps = [TopicPartition(topic, p["partition"]) for p in partitions]
-
-    consumer = AIOKafkaConsumer(
-        bootstrap_servers=bootstrap_servers,
-        enable_auto_commit=False,
-    )
-    await consumer.start()
-    try:
-        consumer.assign(tps)
-        end_map = await consumer.end_offsets(tps)
-        to_delete = {
-            tp: RecordsToDelete(before_offset=end_map[tp])
-            for tp in tps
-            if end_map[tp] > 0
-        }
-    finally:
-        await consumer.stop()
-
-    if not to_delete:
-        return {
-            "status": "ok",
-            "topic": topic,
-            "message": "The topic already has no messages to delete",
-            "partitions_truncated": 0,
-        }
-
-    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
-    await admin.start()
-    try:
-        low_after = await admin.delete_records(to_delete, timeout_ms=timeout_ms)
-    finally:
-        await admin.close()
-
-    return {
-        "status": "ok",
-        "topic": topic,
-        "message": "Committed messages were deleted with DeleteRecords",
-        "partitions_truncated": len(to_delete),
-        "low_watermark_after": {str(tp.partition): low_after.get(tp) for tp in to_delete},
     }

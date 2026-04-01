@@ -20,7 +20,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 try:
-    from .kafka_viewer import KafkaViewer, purge_topic_messages, scan_topic_conversations
+    from .kafka_connection import kafka_connection_extra_kwargs
+    from .kafka_viewer import KafkaViewer, scan_topic_conversations
     from .live_chat import (
         LiveChatConflictError,
         LiveChatManager,
@@ -32,7 +33,8 @@ try:
     from .settings import get_settings
     from .ws_driver import SCENARIOS, Stats, run_load_test
 except ImportError:  # pragma: no cover - direct script execution fallback
-    from kafka_viewer import KafkaViewer, purge_topic_messages, scan_topic_conversations
+    from kafka_connection import kafka_connection_extra_kwargs
+    from kafka_viewer import KafkaViewer, scan_topic_conversations
     from live_chat import (
         LiveChatConflictError,
         LiveChatManager,
@@ -60,6 +62,10 @@ DEFAULT_WS_URL = SETTINGS.default_ws_url
 DEFAULT_KAFKA_BOOTSTRAP = SETTINGS.default_kafka_bootstrap
 DEFAULT_KAFKA_TOPIC = SETTINGS.default_kafka_topic
 _live_chat_manager = LiveChatManager(emit=lambda event_type, data: _emit(event_type, data))
+
+
+def _kafka_connection_extra() -> dict[str, Any]:
+    return kafka_connection_extra_kwargs(SETTINGS)
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +371,7 @@ async def kafka_start(
         topic=topic,
         conversation_id=conversation_id,
         on_error=_on_kafka_error,
+        connection_extra_kwargs=_kafka_connection_extra(),
     )
     sid, q = _kafka_viewer.subscribe()
 
@@ -394,7 +401,12 @@ async def kafka_conversations(
 ):
     """Scan the topic once and return distinct conversationId values for selection."""
     try:
-        return await scan_topic_conversations(bootstrap_servers=bootstrap, topic=topic)
+        return await scan_topic_conversations(
+            bootstrap_servers=bootstrap,
+            topic=topic,
+            connection_extra_kwargs=_kafka_connection_extra(),
+            kafka_mode=SETTINGS.kafka_mode,
+        )
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 
@@ -410,59 +422,6 @@ async def kafka_stop():
         _kafka_viewer = None
     _broadcast_sse("kafka_status", {"connected": False})
     return {"status": "kafka_consumer_stopped"}
-
-
-@app.post("/api/kafka/purge")
-async def kafka_purge(
-    bootstrap: str = Query(DEFAULT_KAFKA_BOOTSTRAP),
-    topic: str = Query(DEFAULT_KAFKA_TOPIC),
-    restart_consumer: bool = Query(
-        True,
-        description="Whether to automatically re-subscribe after purge if the same bootstrap+topic was already being consumed",
-    ),
-):
-    """Delete all committed messages in the topic with DeleteRecords. The local Kafka consumer is stopped first to avoid offset confusion."""
-    global _kafka_viewer, _kafka_forward_task
-
-    resume_bs: str | None = None
-    resume_topic: str | None = None
-    resume_conversation_id: str | None = None
-    if (
-        _kafka_viewer
-        and restart_consumer
-        and _kafka_viewer.bootstrap_servers == bootstrap
-        and _kafka_viewer.topic == topic
-    ):
-        resume_bs, resume_topic = bootstrap, topic
-        resume_conversation_id = _kafka_viewer.conversation_id
-
-    if _kafka_forward_task and not _kafka_forward_task.done():
-        _kafka_forward_task.cancel()
-        _kafka_forward_task = None
-    if _kafka_viewer:
-        await _kafka_viewer.stop()
-        _kafka_viewer = None
-    _broadcast_sse("kafka_status", {"connected": False})
-
-    try:
-        result = await purge_topic_messages(bootstrap, topic)
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-    if result.get("status") != "ok":
-        return result
-
-    _broadcast_sse("kafka_purged", {"topic": topic, "detail": result})
-
-    if resume_bs and resume_topic and resume_conversation_id:
-        started = await kafka_start(
-            bootstrap=resume_bs,
-            topic=resume_topic,
-            conversation_id=resume_conversation_id,
-        )
-        return {"purge": result, **started}
-
-    return {**result, "consumer": "stopped", "hint": "Click Start Consumer again to inspect the latest state"}
 
 
 # ---------------------------------------------------------------------------

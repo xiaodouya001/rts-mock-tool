@@ -5,6 +5,7 @@ PyJWT>=2.8.0
 structlog>=24.0
 uvicorn[standard]>=0.22.0
 websockets>=12.0
+aws-msk-iam-sasl-signer-python>=1.0.0
 coverage[toml]>=7.6.0
 orjson>=3.9.0
 redis>=5.0.0

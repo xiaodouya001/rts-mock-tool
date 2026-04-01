@@ -58,6 +58,33 @@ def _get_optional_setting(name: str) -> str | None:
     return normalized or None
 
 
+def _get_setting_prefer_mock(mock_name: str, service_name: str, default: str) -> str:
+    """Prefer ``MOCK_CLIENT_*`` then fall back to transcribe-service names (shared ``.env``)."""
+    if mock_name in os.environ:
+        return os.environ[mock_name]
+    if service_name in os.environ:
+        return os.environ[service_name]
+    file_vals = _env_file_values()
+    if mock_name in file_vals:
+        return file_vals[mock_name]
+    if service_name in file_vals:
+        return file_vals[service_name]
+    return default
+
+
+def _get_optional_prefer_mock(mock_name: str, service_name: str) -> str | None:
+    for key in (mock_name, service_name):
+        if key in os.environ:
+            normalized = os.environ[key].strip()
+            return normalized or None
+    file_vals = _env_file_values()
+    for key in (mock_name, service_name):
+        if key in file_vals:
+            normalized = file_vals[key].strip()
+            return normalized or None
+    return None
+
+
 def _require_non_empty(name: str, value: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -108,6 +135,13 @@ def _parse_positive_int(name: str, value: str) -> int:
     return parsed
 
 
+def _parse_kafka_mode(name: str, value: str) -> Literal["local", "aws_msk"]:
+    normalized = value.strip().lower()
+    if normalized in ("local", "aws_msk"):
+        return normalized  # type: ignore[return-value]
+    raise ValueError(f"{name} must be one of: local, aws_msk")
+
+
 @dataclass(frozen=True)
 class MockClientSettings:
     host: str
@@ -122,6 +156,10 @@ class MockClientSettings:
     auth_ttl_days: int
     default_kafka_bootstrap: str
     default_kafka_topic: str
+    kafka_mode: Literal["local", "aws_msk"]
+    kafka_aws_region: str | None
+    kafka_ssl_ca_file: str | None
+    kafka_aws_debug_creds: bool
 
 
 def build_auth_claims(
@@ -155,6 +193,36 @@ def generate_hs256_token(
 
 @lru_cache(maxsize=1)
 def get_settings() -> MockClientSettings:
+    kafka_mode_raw = _get_setting_prefer_mock(
+        "MOCK_CLIENT_KAFKA_MODE",
+        "KAFKA_MODE",
+        "local",
+    )
+    kafka_mode = _parse_kafka_mode("MOCK_CLIENT_KAFKA_MODE", kafka_mode_raw)
+    kafka_aws_region = _get_optional_prefer_mock(
+        "MOCK_CLIENT_KAFKA_AWS_REGION",
+        "KAFKA_AWS_REGION",
+    )
+    kafka_ssl_ca_file = _get_optional_prefer_mock(
+        "MOCK_CLIENT_KAFKA_SSL_CA_FILE",
+        "KAFKA_SSL_CA_FILE",
+    )
+    kafka_aws_debug_raw = _get_setting_prefer_mock(
+        "MOCK_CLIENT_KAFKA_AWS_DEBUG_CREDS",
+        "KAFKA_AWS_DEBUG_CREDS",
+        "false",
+    )
+    kafka_aws_debug_creds = _parse_bool(
+        "MOCK_CLIENT_KAFKA_AWS_DEBUG_CREDS",
+        kafka_aws_debug_raw,
+    )
+
+    if kafka_mode == "aws_msk" and not kafka_aws_region:
+        raise ValueError(
+            "MOCK_CLIENT_KAFKA_AWS_REGION or KAFKA_AWS_REGION is required when "
+            "MOCK_CLIENT_KAFKA_MODE or KAFKA_MODE is aws_msk"
+        )
+
     return MockClientSettings(
         host=_require_non_empty(
             "MOCK_CLIENT_HOST",
@@ -201,6 +269,10 @@ def get_settings() -> MockClientSettings:
             "MOCK_CLIENT_DEFAULT_KAFKA_TOPIC",
             _get_setting("MOCK_CLIENT_DEFAULT_KAFKA_TOPIC", "AI_STAGING_TRANSCRIPTION"),
         ),
+        kafka_mode=kafka_mode,
+        kafka_aws_region=kafka_aws_region,
+        kafka_ssl_ca_file=kafka_ssl_ca_file,
+        kafka_aws_debug_creds=kafka_aws_debug_creds,
     )
 
 

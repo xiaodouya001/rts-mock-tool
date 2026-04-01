@@ -268,7 +268,6 @@
           <span id="kafka-count" class="kafka-count-pill" title="Visible rows in the current list">0</span>
           <button type="button" class="panel-header-action" id="btn-kafka-toggle-expand" onclick="toggleAllKafkaMessages()">Expand All</button>
           <button type="button" class="panel-header-action" onclick="clearKafka()" title="Clear the message list and the cached conversationId options">Clear List</button>
-          <button type="button" class="panel-header-action panel-header-action--purge" onclick="purgeKafkaTopic()" title="Delete all committed records from the current Bootstrap/Topic using Kafka DeleteRecords; the consumer is stopped first and restored automatically if it was already consuming this topic">Purge Topic</button>
         </div>
       </div>
       <div class="panel-body kafka-panel-body">

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiokafka[lz4]>=0.10.0",
+    "aws-msk-iam-sasl-signer-python>=1.0.0",
     "cramjam>=2.8.0",
     "fastapi>=0.100.0",
     "PyJWT>=2.8.0",
@@ -71,6 +72,7 @@ packages = [
 [tool.poetry.dependencies]
 python = ">=3.11"
 aiokafka = {extras = ["lz4"], version = ">=0.10.0"}
+aws-msk-iam-sasl-signer-python = ">=1.0.0"
 cramjam = ">=2.8.0"
 fastapi = ">=0.100.0"
 PyJWT = ">=2.8.0"

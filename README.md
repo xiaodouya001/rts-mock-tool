@@ -160,14 +160,12 @@ The Kafka panel header includes:
 
 - visible message count
 - clear list
-- purge topic
 
 | Control | Description |
 |------|------|
 | Bootstrap / Topic | Used when starting the consumer |
 | `conversationId` filter | Filters the message list by conversation ID; choosing "All conversations" disables the filter |
 | Start consumer / stop | Starts or stops the Kafka consumer |
-| Purge topic | Uses Kafka `DeleteRecords` to remove committed messages from the current topic. Intended for development or test use |
 
 Message-list behavior:
 
@@ -239,9 +237,6 @@ curl -X POST "http://127.0.0.1:8088/api/kafka/start"
 
 # Stop Kafka consumption
 curl -X POST "http://127.0.0.1:8088/api/kafka/stop"
-
-# Purge committed Kafka records
-curl -X POST "http://127.0.0.1:8088/api/kafka/purge?bootstrap=127.0.0.1:9092&topic=AI_STAGING_TRANSCRIPTION"
 
 # Preview a Live-Chat CSV
 curl -X POST "http://127.0.0.1:8088/api/live/preview" \

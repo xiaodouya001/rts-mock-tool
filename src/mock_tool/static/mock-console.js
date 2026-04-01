@@ -233,10 +233,6 @@ function connectSSE() {
     addKafkaMessage(d);
   });
 
-  es.addEventListener('kafka_purged', e => {
-    clearKafkaMessagesOnly();
-  });
-
   es.addEventListener('conversation_registered', e => {
     const d = JSON.parse(e.data);
     if (d.scenario && d.conversation_id) setScenarioConversationId(d.scenario, d.conversation_id);
@@ -1815,36 +1811,6 @@ function clearKafkaMessagesOnly() {
   updateKafkaExpandButtonLabel();
   rebuildKafkaCidSelect();
   renderKafkaPage();
-}
-
-async function purgeKafkaTopic() {
-  const bs = document.getElementById('kafka-bootstrap').value.trim();
-  const topic = document.getElementById('kafka-topic').value.trim();
-  if (!bs || !topic) {
-    alert('Fill in both Bootstrap and Topic first');
-    return;
-  }
-  const msg = `Delete all committed records from Kafka topic "${topic}"?\n\n` +
-    'The backend uses DeleteRecords to truncate each partition log. This is intended for development and testing. The page consumer is stopped first; if it was already consuming this topic, it will be started again after the purge.\n\nThis action cannot be undone.';
-  if (!confirm(msg)) return;
-  _setKafkaStatus('○ Purging...', 'var(--yellow)');
-  try {
-    const resp = await fetch(
-      `${API}/api/kafka/purge?bootstrap=${encodeURIComponent(bs)}&topic=${encodeURIComponent(topic)}&restart_consumer=true`,
-      { method: 'POST' },
-    );
-    const data = await resp.json();
-    if (data.error || data.status === 'error') {
-      _setKafkaStatus('✗ Purge failed', 'var(--red)');
-      alert('Purge failed: ' + (data.error || JSON.stringify(data)));
-      return;
-    }
-    clearKafkaMessagesOnly();
-    syncKafkaIdleStatus();
-  } catch (e) {
-    _setKafkaStatus('✗ Request failed', 'var(--red)');
-    alert('Request failed: ' + e);
-  }
 }
 
 function addKafkaMessage(msg) {

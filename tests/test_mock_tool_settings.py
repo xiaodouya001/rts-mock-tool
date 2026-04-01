@@ -48,6 +48,10 @@ def test_get_settings_reads_prefixed_environment(monkeypatch):
     assert settings.auth_ttl_days == 45
     assert settings.default_kafka_bootstrap == "kafka.example:9092"
     assert settings.default_kafka_topic == "TOPIC_A"
+    assert settings.kafka_mode == "local"
+    assert settings.kafka_aws_region is None
+    assert settings.kafka_ssl_ca_file is None
+    assert settings.kafka_aws_debug_creds is False
 
 
 def test_get_settings_ignores_service_env_names(monkeypatch):
@@ -107,6 +111,10 @@ def test_build_auth_token_returns_none_when_auth_is_disabled():
         auth_ttl_days=30,
         default_kafka_bootstrap="127.0.0.1:9092",
         default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_mode="local",
+        kafka_aws_region=None,
+        kafka_ssl_ca_file=None,
+        kafka_aws_debug_creds=False,
     )
 
     assert mock_settings.build_auth_token(settings) is None
@@ -126,6 +134,10 @@ def test_build_auth_token_prefers_explicit_token():
         auth_ttl_days=30,
         default_kafka_bootstrap="127.0.0.1:9092",
         default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_mode="local",
+        kafka_aws_region=None,
+        kafka_ssl_ca_file=None,
+        kafka_aws_debug_creds=False,
     )
 
     assert mock_settings.build_auth_token(settings) == "prebuilt-token"
@@ -165,6 +177,10 @@ def test_build_auth_token_generates_hs256_jwt_from_signing_material():
         auth_ttl_days=30,
         default_kafka_bootstrap="127.0.0.1:9092",
         default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_mode="local",
+        kafka_aws_region=None,
+        kafka_ssl_ca_file=None,
+        kafka_aws_debug_creds=False,
     )
 
     token = mock_settings.build_auth_token(settings, now=now)
@@ -276,6 +292,93 @@ def test_parse_positive_int_rejects_zero_and_negative():
         mock_settings._parse_positive_int("MOCK_CLIENT_AUTH_TTL_DAYS", "0")
 
 
+def test_get_settings_prefers_mock_kafka_env_over_service_names(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.setenv("KAFKA_MODE", "local")
+    monkeypatch.setenv("MOCK_CLIENT_KAFKA_MODE", "aws_msk")
+    monkeypatch.setenv("KAFKA_AWS_REGION", "from-service")
+    monkeypatch.setenv("MOCK_CLIENT_KAFKA_AWS_REGION", "from-mock")
+
+    settings = mock_settings.get_settings()
+
+    assert settings.kafka_mode == "aws_msk"
+    assert settings.kafka_aws_region == "from-mock"
+
+
+def test_get_settings_falls_back_to_service_kafka_env_when_mock_missing(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.delenv("MOCK_CLIENT_KAFKA_MODE", raising=False)
+    monkeypatch.setenv("KAFKA_MODE", "aws_msk")
+    monkeypatch.delenv("MOCK_CLIENT_KAFKA_AWS_REGION", raising=False)
+    monkeypatch.setenv("KAFKA_AWS_REGION", "ap-southeast-1")
+
+    settings = mock_settings.get_settings()
+
+    assert settings.kafka_mode == "aws_msk"
+    assert settings.kafka_aws_region == "ap-southeast-1"
+
+
+def test_get_settings_aws_msk_requires_region(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.setenv("MOCK_CLIENT_KAFKA_MODE", "aws_msk")
+    monkeypatch.delenv("MOCK_CLIENT_KAFKA_AWS_REGION", raising=False)
+    monkeypatch.delenv("KAFKA_AWS_REGION", raising=False)
+
+    with pytest.raises(ValueError, match="KAFKA_AWS_REGION"):
+        mock_settings.get_settings()
+
+
+def test_get_settings_rejects_invalid_kafka_mode(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.setenv("MOCK_CLIENT_KAFKA_MODE", "plaintext")
+
+    with pytest.raises(ValueError, match="MOCK_CLIENT_KAFKA_MODE"):
+        mock_settings.get_settings()
+
+
+def test_parse_kafka_mode_rejects_unknown():
+    with pytest.raises(ValueError, match="X must be one of"):
+        mock_settings._parse_kafka_mode("X", "invalid")
+
+
+def test_parse_kafka_mode_normalizes_case():
+    assert mock_settings._parse_kafka_mode("KAFKA_MODE", "LOCAL") == "local"
+    assert mock_settings._parse_kafka_mode("KAFKA_MODE", "AWS_MSK") == "aws_msk"
+
+
+def test_parse_kafka_mode_rejects_admin():
+    with pytest.raises(ValueError, match="KAFKA_MODE must be one of"):
+        mock_settings._parse_kafka_mode("KAFKA_MODE", "admin")
+
+
+def test_get_setting_prefer_mock_reads_from_env_file(tmp_path, monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    env_path = tmp_path / ".env"
+    env_path.write_text("MOCK_CLIENT_KAFKA_MODE=aws_msk\nKAFKA_AWS_REGION=from-file\n", encoding="utf-8")
+    file_vals = mock_settings._load_env_file(env_path)
+    monkeypatch.setattr(mock_settings, "_env_file_values", lambda: file_vals)
+    monkeypatch.delenv("MOCK_CLIENT_KAFKA_MODE", raising=False)
+    monkeypatch.delenv("KAFKA_MODE", raising=False)
+    monkeypatch.delenv("MOCK_CLIENT_KAFKA_AWS_REGION", raising=False)
+    monkeypatch.delenv("KAFKA_AWS_REGION", raising=False)
+
+    assert mock_settings._get_setting_prefer_mock("MOCK_CLIENT_KAFKA_MODE", "KAFKA_MODE", "local") == "aws_msk"
+    assert mock_settings._get_optional_prefer_mock(
+        "MOCK_CLIENT_KAFKA_AWS_REGION",
+        "KAFKA_AWS_REGION",
+    ) == "from-file"
+
+
+def test_get_setting_prefer_mock_service_name_in_file_when_mock_key_absent(tmp_path, monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    env_path = tmp_path / ".env"
+    env_path.write_text("KAFKA_MODE=local\n", encoding="utf-8")
+    file_vals = mock_settings._load_env_file(env_path)
+    monkeypatch.setattr(mock_settings, "_env_file_values", lambda: file_vals)
+
+    assert mock_settings._get_setting_prefer_mock("MOCK_CLIENT_KAFKA_MODE", "KAFKA_MODE", "x") == "local"
+
+
 def test_build_auth_token_returns_none_when_signing_material_missing():
     settings = mock_settings.MockClientSettings(
         host="0.0.0.0",
@@ -290,6 +393,10 @@ def test_build_auth_token_returns_none_when_signing_material_missing():
         auth_ttl_days=30,
         default_kafka_bootstrap="127.0.0.1:9092",
         default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_mode="local",
+        kafka_aws_region=None,
+        kafka_ssl_ca_file=None,
+        kafka_aws_debug_creds=False,
     )
 
     assert mock_settings.build_auth_token(settings) is None
