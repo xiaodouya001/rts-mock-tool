@@ -354,6 +354,20 @@ header .tag {
   flex-direction: column;
   gap: 16px;
 }
+.scenario-server-config-strip,
+.load-server-config-strip {
+  width: 100%;
+}
+.livechat-server-config-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+.livechat-server-config-strip .livechat-config-readonly-block {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
 .scenario-control-tabs {
   align-self: flex-start;
 }
@@ -2303,6 +2317,34 @@ input.cp-select::placeholder {
   word-break: break-all;
   max-height: 400px;
   overflow-y: auto;
+}
+
+.config-from-env {
+  font-size: 0.78em;
+  font-weight: var(--fw-ui);
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.config-readonly-value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  word-break: break-all;
+}
+.livechat-config-readonly-block {
+  grid-column: 1 / -1;
+}
+.livechat-config-readonly-block .cp-label {
+  display: block;
+  margin-bottom: 6px;
 }
 
 /* Scrollbar */

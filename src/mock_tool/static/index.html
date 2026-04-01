@@ -38,11 +38,7 @@
     <div class="panel-header">Mock Live-Chat Controls</div>
     <div class="panel-body">
       <section class="cp-card livechat-sidebar-card">
-        <div class="livechat-sidebar-tabs livechat-session-tabs" role="tablist" aria-label="Live-Chat sidebar controls">
-          <button type="button" class="livechat-session-tab is-active" id="livechat-sidebar-tab-csv" data-livechat-side-tab="csv" role="tab" aria-selected="true" aria-controls="livechat-sidebar-pane-csv" onclick="switchLiveChatSidebarTab('csv')">CSV Script</button>
-          <button type="button" class="livechat-session-tab" id="livechat-sidebar-tab-target" data-livechat-side-tab="target" role="tab" aria-selected="false" aria-controls="livechat-sidebar-pane-target" onclick="switchLiveChatSidebarTab('target')">Conversation Target</button>
-        </div>
-        <div class="livechat-sidebar-pane" id="livechat-sidebar-pane-csv" role="tabpanel" aria-labelledby="livechat-sidebar-tab-csv">
+        <div class="livechat-sidebar-pane" id="livechat-sidebar-pane-main">
           <input type="file" id="livechat-file-input" accept=".csv,text/csv" hidden>
           <div class="livechat-dropzone" id="livechat-dropzone" role="button" tabindex="0" aria-label="Drop or choose a CSV file for Mock Live-Chat">
             <div class="livechat-dropzone-title">Drop a CSV here or click to choose one</div>
@@ -73,21 +69,14 @@
               <tbody id="livechat-preview-rows"></tbody>
             </table>
           </div>
-        </div>
-        <div class="livechat-sidebar-pane" id="livechat-sidebar-pane-target" role="tabpanel" aria-labelledby="livechat-sidebar-tab-target" hidden>
-          <div class="livechat-sidebar-copy">Configure only the destination service endpoints here.</div>
-          <div class="livechat-form-grid livechat-form-grid--sidebar-target">
-            <div>
-              <label class="cp-label" for="livechat-ws-url">WebSocket URL</label>
-              <input type="text" id="livechat-ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off">
+          <div class="livechat-server-config-strip">
+            <div class="livechat-config-readonly-block">
+              <span class="cp-label">WebSocket <span class="config-from-env">(.env)</span></span>
+              <div id="livechat-ws-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_WS_URL">—</div>
             </div>
-            <div>
-              <label class="cp-label" for="livechat-kafka-bootstrap">Kafka Bootstrap</label>
-              <input type="text" id="livechat-kafka-bootstrap" value="127.0.0.1:9092" autocomplete="off">
-            </div>
-            <div>
-              <label class="cp-label" for="livechat-kafka-topic">Kafka Topic</label>
-              <input type="text" id="livechat-kafka-topic" value="AI_STAGING_TRANSCRIPTION" autocomplete="off">
+            <div class="livechat-config-readonly-block">
+              <span class="cp-label">Kafka <span class="config-from-env">(.env)</span></span>
+              <div id="livechat-kafka-summary" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_KAFKA_*">—</div>
             </div>
           </div>
         </div>
@@ -169,34 +158,13 @@
     </div>
     <div class="panel-body control-strip" id="control-panel-body">
       <section class="cp-card scenario-control-card">
-        <div class="scenario-control-tabs livechat-session-tabs" role="tablist" aria-label="Scenario control sections">
-          <button
-            type="button"
-            class="livechat-session-tab is-active"
-            id="scenario-controls-tab-endpoint"
-            data-scenario-controls-tab="endpoint"
-            role="tab"
-            aria-selected="true"
-            aria-controls="scenario-controls-pane-endpoint"
-            onclick="switchScenarioControlsTab('endpoint')"
-          >Service Endpoint</button>
-          <button
-            type="button"
-            class="livechat-session-tab"
-            id="scenario-controls-tab-tests"
-            data-scenario-controls-tab="tests"
-            role="tab"
-            aria-selected="false"
-            aria-controls="scenario-controls-pane-tests"
-            onclick="switchScenarioControlsTab('tests')"
-          >Scenario Tests</button>
+        <div class="scenario-server-config-strip">
+          <div class="form-group kafka-config-readonly-group" style="width:100%">
+            <label>WebSocket <span class="config-from-env">(.env)</span></label>
+            <div id="scenario-ws-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_WS_URL">—</div>
+          </div>
         </div>
-        <div class="scenario-control-pane scenario-endpoint-card" id="scenario-controls-pane-endpoint" role="tabpanel" aria-labelledby="scenario-controls-tab-endpoint">
-          <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Service Endpoint</h3>
-          <label class="cp-label" for="ws-url">WebSocket URL</label>
-          <input type="text" id="ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off">
-        </div>
-        <div class="scenario-control-pane" id="scenario-controls-pane-tests" role="tabpanel" aria-labelledby="scenario-controls-tab-tests" hidden>
+        <div class="scenario-control-pane" id="scenario-controls-pane-tests">
           <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Scenario Tests</h3>
           <div class="cp-scenario-toolbar">
             <div class="cp-scenario-subcard">
@@ -272,13 +240,13 @@
       </div>
       <div class="panel-body kafka-panel-body">
         <div class="kafka-toolbar">
-          <div class="form-group" style="flex:1;min-width:140px;max-width:220px">
-            <label>Bootstrap</label>
-            <input type="text" id="kafka-bootstrap" value="127.0.0.1:9092" oninput="invalidateKafkaConversationInventory()">
+          <div class="form-group kafka-config-readonly-group" style="flex:1;min-width:140px;max-width:240px">
+            <label>Bootstrap <span class="config-from-env">(.env)</span></label>
+            <div id="kafka-bootstrap-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP">—</div>
           </div>
-          <div class="form-group" style="flex:1.2;min-width:160px;max-width:280px">
-            <label>Topic</label>
-            <input type="text" id="kafka-topic" value="AI_STAGING_TRANSCRIPTION" oninput="invalidateKafkaConversationInventory()">
+          <div class="form-group kafka-config-readonly-group" style="flex:1.2;min-width:160px;max-width:280px">
+            <label>Topic <span class="config-from-env">(.env)</span></label>
+            <div id="kafka-topic-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_KAFKA_TOPIC">—</div>
           </div>
           <div class="form-group kafka-consumer-group">
             <label>Kafka Consumer<span id="kafka-status" class="kafka-inline-status"></span></label>
@@ -328,33 +296,13 @@
     <div class="panel-header">Load-Test Controls</div>
     <div class="panel-body">
       <section class="cp-card load-control-card">
-        <div class="load-control-tabs livechat-session-tabs" role="tablist" aria-label="Load-test control sections">
-          <button
-            type="button"
-            class="livechat-session-tab is-active"
-            id="load-controls-tab-endpoint"
-            data-load-controls-tab="endpoint"
-            role="tab"
-            aria-selected="true"
-            aria-controls="load-controls-pane-endpoint"
-            onclick="switchLoadControlsTab('endpoint')"
-          >Service Endpoint</button>
-          <button
-            type="button"
-            class="livechat-session-tab"
-            id="load-controls-tab-parameters"
-            data-load-controls-tab="parameters"
-            role="tab"
-            aria-selected="false"
-            aria-controls="load-controls-pane-parameters"
-            onclick="switchLoadControlsTab('parameters')"
-          >Connection Parameters</button>
+        <div class="load-server-config-strip">
+          <div class="form-group kafka-config-readonly-group" style="width:100%">
+            <label>WebSocket <span class="config-from-env">(.env)</span></label>
+            <div id="load-ws-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_WS_URL">—</div>
+          </div>
         </div>
-        <div class="load-control-pane" id="load-controls-pane-endpoint" role="tabpanel" aria-labelledby="load-controls-tab-endpoint">
-          <label class="cp-label" for="load-ws-url">WebSocket URL</label>
-          <input type="text" id="load-ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off" style="width:100%">
-        </div>
-        <div class="load-control-pane" id="load-controls-pane-parameters" role="tabpanel" aria-labelledby="load-controls-tab-parameters" hidden>
+        <div class="load-control-pane" id="load-controls-pane-parameters">
           <p class="cp-load-hint">
             Each connection sends continuous <code>SESSION_ONGOING</code> messages by sequence number, followed by one final <code>SESSION_COMPLETE</code>.
             After you click Start, all connections connect, send, and close in one run.

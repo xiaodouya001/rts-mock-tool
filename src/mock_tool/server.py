@@ -58,9 +58,6 @@ _kafka_viewer: KafkaViewer | None = None
 _kafka_forward_task: asyncio.Task | None = None
 SETTINGS = get_settings()
 
-DEFAULT_WS_URL = SETTINGS.default_ws_url
-DEFAULT_KAFKA_BOOTSTRAP = SETTINGS.default_kafka_bootstrap
-DEFAULT_KAFKA_TOPIC = SETTINGS.default_kafka_topic
 _live_chat_manager = LiveChatManager(emit=lambda event_type, data: _emit(event_type, data))
 
 
@@ -179,7 +176,6 @@ async def sse(request: Request):
 @app.post("/api/scenario/run")
 async def run_scenario(
     name: str = Query(...),
-    ws_url: str = Query(DEFAULT_WS_URL),
     n_messages: int = Query(
         5,
         ge=1,
@@ -202,7 +198,7 @@ async def run_scenario(
 
     import inspect
     sig = inspect.signature(fn)
-    kwargs: dict[str, Any] = {"ws_url": ws_url, "emit": _emit}
+    kwargs: dict[str, Any] = {"ws_url": SETTINGS.default_ws_url, "emit": _emit}
     if "n_messages" in sig.parameters:
         kwargs["n_messages"] = n_messages
 
@@ -214,20 +210,18 @@ async def run_scenario(
 
 @app.post("/api/scenario/run-all")
 async def run_all_scenarios(
-    ws_url: str = Query(DEFAULT_WS_URL),
     n_messages: int = Query(5, ge=1, le=100),
 ):
     """Run all scenarios sequentially."""
     results = []
     for name in SCENARIOS:
-        r = await run_scenario(name=name, ws_url=ws_url, n_messages=n_messages)
+        r = await run_scenario(name=name, n_messages=n_messages)
         results.append(r)
     return results
 
 
 @app.post("/api/load/start")
 async def load_start(
-    ws_url: str = Query(DEFAULT_WS_URL),
     concurrency: int = Query(
         10,
         ge=1,
@@ -278,7 +272,7 @@ async def load_start(
     async def _run():
         try:
             await run_load_test(
-                ws_url=ws_url,
+                ws_url=SETTINGS.default_ws_url,
                 stats=stats,
                 emit=_emit,
                 concurrency=concurrency,
@@ -311,6 +305,18 @@ async def load_stop():
 @app.get("/api/status")
 async def get_status():
     return stats.snapshot()
+
+
+@app.get("/api/ui-config")
+async def ui_config():
+    """Read-only Kafka and WebSocket targets for the UI (from server settings / .env)."""
+    s = SETTINGS
+    return {
+        "kafka_bootstrap": s.default_kafka_bootstrap,
+        "kafka_topic": s.default_kafka_topic,
+        "kafka_mode": s.kafka_mode,
+        "ws_url": s.default_ws_url,
+    }
 
 
 @app.post("/api/live/preview")
@@ -351,12 +357,13 @@ async def live_status():
 
 @app.post("/api/kafka/start")
 async def kafka_start(
-    bootstrap: str = Query(DEFAULT_KAFKA_BOOTSTRAP),
-    topic: str = Query(DEFAULT_KAFKA_TOPIC),
     conversation_id: str = Query(..., min_length=1),
 ):
     """Start the Kafka consumer and forward messages through SSE."""
     global _kafka_viewer, _kafka_forward_task
+
+    bootstrap = SETTINGS.default_kafka_bootstrap
+    topic = SETTINGS.default_kafka_topic
 
     if _kafka_forward_task and not _kafka_forward_task.done():
         _kafka_forward_task.cancel()
@@ -395,15 +402,12 @@ async def kafka_start(
 
 
 @app.get("/api/kafka/conversations")
-async def kafka_conversations(
-    bootstrap: str = Query(DEFAULT_KAFKA_BOOTSTRAP),
-    topic: str = Query(DEFAULT_KAFKA_TOPIC),
-):
+async def kafka_conversations():
     """Scan the topic once and return distinct conversationId values for selection."""
     try:
         return await scan_topic_conversations(
-            bootstrap_servers=bootstrap,
-            topic=topic,
+            bootstrap_servers=SETTINGS.default_kafka_bootstrap,
+            topic=SETTINGS.default_kafka_topic,
             connection_extra_kwargs=_kafka_connection_extra(),
             kafka_mode=SETTINGS.kafka_mode,
         )

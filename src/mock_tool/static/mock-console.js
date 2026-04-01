@@ -32,6 +32,10 @@ let _kafkaInventoryError = '';
 let _kafkaInventoryPromise = null;
 let _kafkaConsumerConnected = false;
 let _kafkaActiveConversationId = '';
+/** Filled from GET /api/ui-config (server .env); Kafka APIs ignore browser overrides. */
+let _uiKafkaBootstrap = '';
+let _uiKafkaTopic = '';
+let _uiWsUrl = '';
 const latencyHistory = [];
 let _loadUiRunning = false;
 let liveChatCsvText = '';
@@ -132,69 +136,6 @@ function switchTab(name) {
   } catch (e) {}
 })();
 
-function switchScenarioControlsTab(name) {
-  const endpointPane = document.getElementById('scenario-controls-pane-endpoint');
-  const testsPane = document.getElementById('scenario-controls-pane-tests');
-  const endpointTab = document.getElementById('scenario-controls-tab-endpoint');
-  const testsTab = document.getElementById('scenario-controls-tab-tests');
-  const isEndpoint = name === 'endpoint';
-
-  if (endpointPane) endpointPane.hidden = !isEndpoint;
-  if (testsPane) testsPane.hidden = isEndpoint;
-  if (endpointTab) {
-    endpointTab.classList.toggle('is-active', isEndpoint);
-    endpointTab.setAttribute('aria-selected', isEndpoint ? 'true' : 'false');
-  }
-  if (testsTab) {
-    testsTab.classList.toggle('is-active', !isEndpoint);
-    testsTab.setAttribute('aria-selected', !isEndpoint ? 'true' : 'false');
-  }
-  try { localStorage.setItem('mockClient.scenarioControlsTab', isEndpoint ? 'endpoint' : 'tests'); } catch (e) {}
-}
-
-(function restoreScenarioControlsTab() {
-  try {
-    const saved = localStorage.getItem('mockClient.scenarioControlsTab');
-    if (saved === 'endpoint' || saved === 'tests') {
-      switchScenarioControlsTab(saved);
-    }
-  } catch (e) {}
-})();
-
-function switchLoadControlsTab(name) {
-  const endpointPane = document.getElementById('load-controls-pane-endpoint');
-  const parametersPane = document.getElementById('load-controls-pane-parameters');
-  const endpointTab = document.getElementById('load-controls-tab-endpoint');
-  const parametersTab = document.getElementById('load-controls-tab-parameters');
-  const isEndpoint = name === 'endpoint';
-
-  if (endpointPane) endpointPane.hidden = !isEndpoint;
-  if (parametersPane) parametersPane.hidden = isEndpoint;
-  if (endpointTab) {
-    endpointTab.classList.toggle('is-active', isEndpoint);
-    endpointTab.setAttribute('aria-selected', isEndpoint ? 'true' : 'false');
-  }
-  if (parametersTab) {
-    parametersTab.classList.toggle('is-active', !isEndpoint);
-    parametersTab.setAttribute('aria-selected', !isEndpoint ? 'true' : 'false');
-  }
-  try { localStorage.setItem('mockClient.loadControlsTab', isEndpoint ? 'endpoint' : 'parameters'); } catch (e) {}
-}
-
-(function restoreLoadControlsTab() {
-  try {
-    const saved = localStorage.getItem('mockClient.loadControlsTab');
-    if (saved === 'endpoint' || saved === 'parameters') {
-      switchLoadControlsTab(saved);
-    }
-  } catch (e) {}
-})();
-
-(function initKafkaCidUi() {
-  _syncKafkaCidPlaceholder();
-  updateKafkaConsumerControls();
-})();
-
 (function initKafkaCidCombobox() {
   document.addEventListener('click', (event) => {
     const box = document.getElementById('kafka-cid-combobox');
@@ -206,6 +147,40 @@ function switchLoadControlsTab(name) {
 // ---------------------------------------------------------------------------
 // SSE
 // ---------------------------------------------------------------------------
+async function loadUiConfig() {
+  try {
+    const resp = await fetch(`${API}/api/ui-config`);
+    const data = await resp.json().catch(() => ({}));
+    _uiKafkaBootstrap = String(data.kafka_bootstrap || '').trim();
+    _uiKafkaTopic = String(data.kafka_topic || '').trim();
+    _uiWsUrl = String(data.ws_url || '').trim();
+
+    const setText = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    };
+    setText('kafka-bootstrap-display', _uiKafkaBootstrap || '—');
+    setText('kafka-topic-display', _uiKafkaTopic || '—');
+    const wsDisp = _uiWsUrl || '—';
+    setText('scenario-ws-display', wsDisp);
+    setText('load-ws-display', wsDisp);
+    setText('livechat-ws-display', wsDisp);
+    const lk = document.getElementById('livechat-kafka-summary');
+    if (lk) {
+      lk.textContent = _uiKafkaBootstrap && _uiKafkaTopic ? `${_uiKafkaBootstrap} · ${_uiKafkaTopic}` : '—';
+    }
+  } catch (e) {
+    const setText = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    };
+    setText('kafka-bootstrap-display', '(unavailable)');
+    setText('kafka-topic-display', '(unavailable)');
+    const lk = document.getElementById('livechat-kafka-summary');
+    if (lk) lk.textContent = '—';
+  }
+}
+
 function connectSSE() {
   const es = new EventSource(API + '/api/events');
   const statusEl = document.getElementById('sse-status');
@@ -328,29 +303,34 @@ function connectSSE() {
     updateLiveChatControls(liveChatSnapshot);
   });
 }
-connectSSE();
-initLiveChatDropzone();
-(function initLiveChatStartButton() {
-  const el = document.getElementById('btn-livechat-start');
-  if (!el) return;
-  el.addEventListener('click', (event) => {
-    if (el.disabled || el.getAttribute('data-livechat-busy') === '1') {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    void startLiveChat();
+
+(async function bootMockConsole() {
+  await loadUiConfig();
+  connectSSE();
+  initLiveChatDropzone();
+  (function initLiveChatStartButton() {
+    const el = document.getElementById('btn-livechat-start');
+    if (!el) return;
+    el.addEventListener('click', (event) => {
+      if (el.disabled || el.getAttribute('data-livechat-busy') === '1') {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      void startLiveChat();
+    });
+  })();
+  await loadLiveChatStatus();
+  updateKafkaExpandButtonLabel();
+  renderHeatstrip();
+  ['load-concurrency', 'load-messages', 'load-interval', 'load-rampup'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', syncLoadBenchmarkPresetSelection);
   });
+  syncLoadBenchmarkPresetSelection();
+  _syncKafkaCidPlaceholder();
+  updateKafkaConsumerControls();
 })();
-restoreLiveChatSidebarTab();
-loadLiveChatStatus();
-updateKafkaExpandButtonLabel();
-renderHeatstrip();
-['load-concurrency', 'load-messages', 'load-interval', 'load-rampup'].forEach((id) => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('input', syncLoadBenchmarkPresetSelection);
-});
-syncLoadBenchmarkPresetSelection();
 
 (function initScenarioMainResizer() {
   const LS = 'mockClient.scenarioSplitPct';
@@ -536,9 +516,8 @@ function finalizeScenarioCard(name, passed, steps) {
 }
 
 async function runScenario(name) {
-  const wsUrl = document.getElementById('ws-url').value;
   createScenarioCard(name);
-  let url = `${API}/api/scenario/run?name=${encodeURIComponent(name)}&ws_url=${encodeURIComponent(wsUrl)}`;
+  let url = `${API}/api/scenario/run?name=${encodeURIComponent(name)}`;
   if (SCENARIOS_WITH_N.has(name)) {
     url += `&n_messages=${encodeURIComponent(document.getElementById('scenario-messages').value)}`;
   }
@@ -642,12 +621,11 @@ function setLoadUiDone(d) {
 }
 
 async function startLoad() {
-  const wsUrl = document.getElementById('load-ws-url').value;
   const c = document.getElementById('load-concurrency').value;
   const m = document.getElementById('load-messages').value;
   const interval = document.getElementById('load-interval').value;
   const rampup = document.getElementById('load-rampup').value;
-  const resp = await fetch(`${API}/api/load/start?ws_url=${encodeURIComponent(wsUrl)}&concurrency=${c}&messages_per_conv=${m}&interval_ms=${interval}&ramp_up_ms=${rampup}`, { method: 'POST' });
+  const resp = await fetch(`${API}/api/load/start?concurrency=${c}&messages_per_conv=${m}&interval_ms=${interval}&ramp_up_ms=${rampup}`, { method: 'POST' });
   const data = await resp.json().catch(() => ({}));
   if (data.error) {
     alert(data.error);
@@ -678,36 +656,6 @@ async function stopLoad() {
 // ---------------------------------------------------------------------------
 function makeLiveChatConversationId() {
   return 'livechat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-}
-
-function switchLiveChatSidebarTab(name) {
-  const active = name === 'target' ? 'target' : 'csv';
-  document.querySelectorAll('[data-livechat-side-tab]').forEach((button) => {
-    const isActive = button.dataset.livechatSideTab === active;
-    button.classList.toggle('is-active', isActive);
-    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-  const csvPane = document.getElementById('livechat-sidebar-pane-csv');
-  const targetPane = document.getElementById('livechat-sidebar-pane-target');
-  if (csvPane) csvPane.hidden = active !== 'csv';
-  if (targetPane) targetPane.hidden = active !== 'target';
-  try {
-    localStorage.setItem('mockClient.liveChatSidebarTab', active);
-  } catch (e) {}
-}
-
-function restoreLiveChatSidebarTab() {
-  try {
-    const saved = localStorage.getItem('mockClient.liveChatSidebarTab') || 'csv';
-    switchLiveChatSidebarTab(saved);
-    return;
-  } catch (e) {}
-  if (
-    !document.getElementById('livechat-sidebar-pane-csv')?.hidden &&
-    !document.getElementById('livechat-sidebar-pane-target')?.hidden
-  ) {
-    switchLiveChatSidebarTab('csv');
-  }
 }
 
 function triggerLiveChatFileInput() {
@@ -1080,6 +1028,13 @@ function applyLiveChatSnapshot(snapshot, options = {}) {
     resetLiveChatThread();
     setLiveChatConversationPill('');
     setLiveChatStatusBanner(_liveChatPrimaryMessage(null), 'idle');
+    const liveWsClear = document.getElementById('livechat-ws-display');
+    if (liveWsClear) liveWsClear.textContent = _uiWsUrl || '—';
+    const liveKsClear = document.getElementById('livechat-kafka-summary');
+    if (liveKsClear) {
+      liveKsClear.textContent =
+        _uiKafkaBootstrap && _uiKafkaTopic ? `${_uiKafkaBootstrap} · ${_uiKafkaTopic}` : '—';
+    }
     updateLiveChatControls(null);
     return;
   }
@@ -1095,14 +1050,19 @@ function applyLiveChatSnapshot(snapshot, options = {}) {
     state,
   } = snapshot;
 
-  const wsInput = document.getElementById('livechat-ws-url');
-  const bootstrapInput = document.getElementById('livechat-kafka-bootstrap');
-  const topicInput = document.getElementById('livechat-kafka-topic');
   const cpsInput = document.getElementById('livechat-chars-per-second');
   const jitterInput = document.getElementById('livechat-jitter-pct');
-  if (wsInput && ws_url) wsInput.value = ws_url;
-  if (bootstrapInput && kafka_bootstrap) bootstrapInput.value = kafka_bootstrap;
-  if (topicInput && kafka_topic) topicInput.value = kafka_topic;
+  const liveWs = document.getElementById('livechat-ws-display');
+  if (liveWs) {
+    const w = (ws_url != null && String(ws_url).trim()) || _uiWsUrl;
+    liveWs.textContent = w || '—';
+  }
+  const liveKs = document.getElementById('livechat-kafka-summary');
+  if (liveKs) {
+    const kb = kafka_bootstrap || _uiKafkaBootstrap;
+    const kt = kafka_topic || _uiKafkaTopic;
+    liveKs.textContent = kb && kt ? `${kb} · ${kt}` : '—';
+  }
   if (cpsInput && chars_per_second != null) cpsInput.value = String(chars_per_second);
   if (jitterInput && pace_jitter_pct != null) jitterInput.value = String(Math.round(Number(pace_jitter_pct) * 100));
 
@@ -1224,9 +1184,6 @@ async function startLiveChat() {
     const payload = {
       csv_text: liveChatCsvText,
       csv_filename: liveChatCsvFilename || 'conversation.csv',
-      ws_url: document.getElementById('livechat-ws-url').value,
-      kafka_bootstrap: document.getElementById('livechat-kafka-bootstrap').value,
-      kafka_topic: document.getElementById('livechat-kafka-topic').value,
       conversation_id: conversationId,
       chars_per_second: charsPerSecond,
       pace_jitter_pct: jitterPct / 100,
@@ -1344,9 +1301,7 @@ function initLiveChatDropzone() {
 // Kafka
 // ---------------------------------------------------------------------------
 function _getKafkaTargetKey() {
-  const bootstrap = document.getElementById('kafka-bootstrap')?.value?.trim() || '';
-  const topic = document.getElementById('kafka-topic')?.value?.trim() || '';
-  return `${bootstrap}::${topic}`;
+  return `${_uiKafkaBootstrap}::${_uiKafkaTopic}`;
 }
 
 function _getKafkaCidFilter() {
@@ -1477,14 +1432,10 @@ function updateKafkaConsumerControls() {
   const stopBtn = document.getElementById('btn-kafka-stop');
   const input = document.getElementById('kafka-cid-select');
   const toggle = document.getElementById('kafka-cid-toggle');
-  const bootstrapInput = document.getElementById('kafka-bootstrap');
-  const topicInput = document.getElementById('kafka-topic');
   const selected = _getSelectedKafkaConversationId();
   const locked = _kafkaConsumerConnected;
   const isSameSelection = Boolean(selected) && selected === _kafkaActiveConversationId;
 
-  if (bootstrapInput) bootstrapInput.disabled = locked;
-  if (topicInput) topicInput.disabled = locked;
   if (input) input.disabled = false;
   if (toggle) toggle.disabled = false;
 
@@ -1512,29 +1463,13 @@ function updateKafkaConsumerControls() {
   }
 }
 
-function invalidateKafkaConversationInventory() {
-  if (_kafkaConsumerConnected) return;
-  _kafkaInventoryKey = '';
-  _kafkaInventoryError = '';
-  _kafkaInventoryLoading = false;
-  _kafkaInventoryPromise = null;
-  _kafkaCidFilter = '';
-  knownConversationIds.clear();
-  const input = document.getElementById('kafka-cid-select');
-  if (input) input.value = '';
-  closeKafkaCidMenu();
-  _syncKafkaCidPlaceholder();
-  _renderKafkaCidMenu();
-  updateKafkaConsumerControls();
-}
-
 async function ensureKafkaConversationInventory(force = false) {
-  const bootstrap = document.getElementById('kafka-bootstrap')?.value?.trim() || '';
-  const topic = document.getElementById('kafka-topic')?.value?.trim() || '';
+  const bootstrap = _uiKafkaBootstrap;
+  const topic = _uiKafkaTopic;
   const key = _getKafkaTargetKey();
 
   if (!bootstrap || !topic) {
-    _kafkaInventoryError = 'Fill in Bootstrap and Topic first.';
+    _kafkaInventoryError = 'Kafka bootstrap/topic missing from server config. Check .env and reload.';
     _renderKafkaCidMenu();
     updateKafkaConsumerControls();
     return false;
@@ -1559,9 +1494,7 @@ async function ensureKafkaConversationInventory(force = false) {
 
   _kafkaInventoryPromise = (async () => {
     try {
-      const resp = await fetch(
-        `${API}/api/kafka/conversations?bootstrap=${encodeURIComponent(bootstrap)}&topic=${encodeURIComponent(topic)}`,
-      );
+      const resp = await fetch(`${API}/api/kafka/conversations`);
       const data = await resp.json();
       if (!resp.ok || data.status === 'error') {
         throw new Error(data.error || 'Failed to discover conversationIds');
@@ -1712,7 +1645,7 @@ async function replayKafkaMessage(btnEl) {
     return;
   }
   const cid = payload?.metaData?.conversationId;
-  const wsUrl = document.getElementById('ws-url')?.value || '';
+  const wsUrl = _uiWsUrl;
   if (!cid || !wsUrl) return;
   const url = `${wsUrl}?conversationId=${encodeURIComponent(cid)}`;
   btnEl.disabled = true;
@@ -1746,8 +1679,7 @@ async function replayKafkaMessage(btnEl) {
 }
 
 async function startKafka() {
-  const bs = document.getElementById('kafka-bootstrap').value.trim();
-  const topic = document.getElementById('kafka-topic').value.trim();
+  const topic = _uiKafkaTopic;
   const conversationId = _getSelectedKafkaConversationId();
   const btn = document.getElementById('btn-kafka-start');
   if (!conversationId) {
@@ -1760,7 +1692,7 @@ async function startKafka() {
   clearKafkaRenderedMessagesOnly();
   try {
     const resp = await fetch(
-      `${API}/api/kafka/start?bootstrap=${encodeURIComponent(bs)}&topic=${encodeURIComponent(topic)}&conversation_id=${encodeURIComponent(conversationId)}`,
+      `${API}/api/kafka/start?conversation_id=${encodeURIComponent(conversationId)}`,
       { method: 'POST' },
     );
     const data = await resp.json();
@@ -1863,7 +1795,7 @@ function _buildKafkaMsgEl(msg) {
       <span>P${msg.partition}:${msg.offset}</span>
       <span>${cidDisp}</span>
       <span>${new Date(msg.timestamp).toLocaleTimeString()}</span>
-      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); replayKafkaMessage(this)" title="Replay this JSON through the current Scenario WebSocket URL">Replay</button>
+      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); replayKafkaMessage(this)" title="Replay this JSON through the server WebSocket URL (MOCK_CLIENT_DEFAULT_WS_URL / .env)">Replay</button>
       <button type="button" class="panel-header-action" onclick="event.stopPropagation(); copySingleKafkaJson(this)" title="Copy this message JSON">Copy</button>
     </div>
     <pre class="body"><code>${highlightedJson}</code></pre>

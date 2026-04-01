@@ -63,9 +63,6 @@ def test_live_start_endpoint_maps_conflict(monkeypatch):
             json={
                 "csv_text": "speaker,transcript\nAgent,hello\n",
                 "csv_filename": "chat.csv",
-                "ws_url": "ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
-                "kafka_bootstrap": "127.0.0.1:9092",
-                "kafka_topic": "AI_STAGING_TRANSCRIPTION",
                 "conversation_id": "cid-1",
                 "chars_per_second": 18,
                 "pace_jitter_pct": 0.15,
@@ -74,6 +71,18 @@ def test_live_start_endpoint_maps_conflict(monkeypatch):
 
     assert resp.status_code == 409
     assert resp.json()["detail"] == "already running"
+
+
+def test_ui_config_endpoint_returns_kafka_fields():
+    with TestClient(app) as client:
+        resp = client.get("/api/ui-config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "kafka_bootstrap" in data
+    assert "kafka_topic" in data
+    assert "kafka_mode" in data
+    assert "ws_url" in data
+    assert isinstance(data["ws_url"], str) and data["ws_url"].startswith("ws://")
 
 
 def test_live_status_and_stop_endpoints_delegate_to_manager(monkeypatch):

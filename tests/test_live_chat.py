@@ -18,6 +18,20 @@ from mock_tool.live_chat import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _patch_live_chat_kafka_settings(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "mock_tool.live_chat.get_settings",
+        lambda: SimpleNamespace(
+            default_kafka_bootstrap="127.0.0.1:9092",
+            default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+            default_ws_url="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
+        ),
+    )
+
+
 def test_parse_live_chat_csv_recognizes_aliases_and_delay():
     parsed = parse_live_chat_csv(
         "role,content,typing_delay_ms\n"
@@ -124,9 +138,6 @@ async def test_live_chat_manager_runs_rows_and_auto_completes(monkeypatch):
     request = LiveChatStartRequest(
         csv_text="speaker,transcript\nAgent,Hello\nCustomer,Hi there\n",
         csv_filename="chat.csv",
-        ws_url="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
-        kafka_bootstrap="127.0.0.1:9092",
-        kafka_topic="AI_STAGING_TRANSCRIPTION",
         conversation_id="live-chat-1",
         chars_per_second=20,
         pace_jitter_pct=0,
@@ -177,9 +188,6 @@ async def test_live_chat_manager_rejects_second_start_while_running(monkeypatch)
     request = LiveChatStartRequest(
         csv_text="speaker,transcript\nAgent,Hello\n",
         csv_filename="chat.csv",
-        ws_url="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
-        kafka_bootstrap="127.0.0.1:9092",
-        kafka_topic="AI_STAGING_TRANSCRIPTION",
         conversation_id="live-chat-2",
         chars_per_second=20,
         pace_jitter_pct=0,
@@ -218,9 +226,6 @@ async def test_live_chat_manager_stop_cancels_running_session(monkeypatch):
     request = LiveChatStartRequest(
         csv_text="speaker,transcript\nAgent,Hello\nCustomer,Still here\n",
         csv_filename="chat.csv",
-        ws_url="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
-        kafka_bootstrap="127.0.0.1:9092",
-        kafka_topic="AI_STAGING_TRANSCRIPTION",
         conversation_id="live-chat-4",
         chars_per_second=20,
         pace_jitter_pct=0,

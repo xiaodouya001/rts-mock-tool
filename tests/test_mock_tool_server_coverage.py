@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from dataclasses import replace
 import runpy
 import sys
 from types import SimpleNamespace
@@ -198,7 +199,7 @@ async def test_sse_endpoint_finalizer_tolerates_missing_queue_membership(monkeyp
 
 @pytest.mark.asyncio
 async def test_run_scenario_handles_unknown_name():
-    result = await server_mod.run_scenario(name="NOPE", ws_url="ws://unit-test", n_messages=3)
+    result = await server_mod.run_scenario(name="NOPE", n_messages=3)
 
     assert "Unknown scenario" in result["error"]
 
@@ -213,10 +214,11 @@ async def test_run_scenario_passes_n_messages_when_supported(monkeypatch):
         await emit("scenario_step", {"from": "scenario"})
         return ScenarioResult(name="N-03", passed=True, steps=[{"ok": True}])
 
+    monkeypatch.setattr(server_mod, "SETTINGS", replace(server_mod.SETTINGS, default_ws_url="ws://unit-test"))
     monkeypatch.setattr(server_mod, "SCENARIOS", {"N-03": scenario})
     monkeypatch.setattr(server_mod, "_broadcast_sse", lambda event_type, data: broadcasts.append((event_type, data)))
 
-    result = await server_mod.run_scenario(name="N-03", ws_url="ws://unit-test", n_messages=7)
+    result = await server_mod.run_scenario(name="N-03", n_messages=7)
 
     assert result["passed"] is True
     assert [item[0] for item in broadcasts] == ["scenario_start", "scenario_step", "scenario_done"]
@@ -229,9 +231,10 @@ async def test_run_scenario_without_n_messages_uses_default_signature(monkeypatc
         await emit("scenario_step", {"from": "scenario"})
         return ScenarioResult(name="E-04", passed=True, steps=[])
 
+    monkeypatch.setattr(server_mod, "SETTINGS", replace(server_mod.SETTINGS, default_ws_url="ws://unit-test"))
     monkeypatch.setattr(server_mod, "SCENARIOS", {"E-04": scenario})
 
-    result = await server_mod.run_scenario(name="E-04", ws_url="ws://unit-test", n_messages=9)
+    result = await server_mod.run_scenario(name="E-04", n_messages=9)
 
     assert result["passed"] is True
 
@@ -245,7 +248,7 @@ async def test_run_all_scenarios_aggregates_results(monkeypatch):
         AsyncMock(side_effect=[{"scenario": "A"}, {"scenario": "B"}]),
     )
 
-    result = await server_mod.run_all_scenarios(ws_url="ws://unit-test", n_messages=2)
+    result = await server_mod.run_all_scenarios(n_messages=2)
 
     assert result == [{"scenario": "A"}, {"scenario": "B"}]
 
@@ -275,7 +278,6 @@ async def test_load_start_and_stop_manage_task(monkeypatch):
     monkeypatch.setattr(server_mod, "run_load_test", fake_run_load_test)
 
     result = await server_mod.load_start(
-        ws_url="ws://unit-test",
         concurrency=2,
         messages_per_conv=3,
         interval_ms=0,
@@ -369,11 +371,7 @@ async def test_kafka_start_success_failure_and_stop(monkeypatch):
     monkeypatch.setattr(server_mod, "_kafka_viewer", old_viewer)
     monkeypatch.setattr(server_mod, "KafkaViewer", _Viewer)
 
-    result = await server_mod.kafka_start(
-        bootstrap="127.0.0.1:9092",
-        topic="topic-a",
-        conversation_id="cid-1",
-    )
+    result = await server_mod.kafka_start(conversation_id="cid-1")
     callbacks[0]("broker down")
     queue.put_nowait({"message": "hello"})
     await asyncio.sleep(0)
@@ -392,11 +390,7 @@ async def test_kafka_start_success_failure_and_stop(monkeypatch):
             self.start = AsyncMock(side_effect=RuntimeError("kafka down"))
 
     monkeypatch.setattr(server_mod, "KafkaViewer", _FailViewer)
-    result = await server_mod.kafka_start(
-        bootstrap="127.0.0.1:9092",
-        topic="topic-a",
-        conversation_id="cid-1",
-    )
+    result = await server_mod.kafka_start(conversation_id="cid-1")
 
     assert result == {"status": "kafka_consumer_failed", "error": "kafka down"}
 
@@ -409,7 +403,7 @@ async def test_kafka_conversations_maps_exceptions(monkeypatch):
         AsyncMock(side_effect=RuntimeError("scan failed")),
     )
 
-    result = await server_mod.kafka_conversations(bootstrap="127.0.0.1:9092", topic="topic-a")
+    result = await server_mod.kafka_conversations()
 
     assert result == {"status": "error", "error": "scan failed"}
 

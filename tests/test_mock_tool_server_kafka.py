@@ -31,7 +31,7 @@ def test_kafka_conversations_endpoint_returns_inventory(monkeypatch):
     )
 
     with TestClient(app) as client:
-        resp = client.get("/api/kafka/conversations?bootstrap=127.0.0.1:9092&topic=AI_STAGING_TRANSCRIPTION")
+        resp = client.get("/api/kafka/conversations")
 
     assert resp.status_code == 200
     assert resp.json()["conversation_count"] == 2
@@ -44,6 +44,6 @@ def test_kafka_start_endpoint_requires_selected_conversation_id(monkeypatch):
     monkeypatch.setattr(server_mod, "_live_chat_manager", manager)
 
     with TestClient(app) as client:
-        resp = client.post("/api/kafka/start?bootstrap=127.0.0.1:9092&topic=AI_STAGING_TRANSCRIPTION")
+        resp = client.post("/api/kafka/start")
 
     assert resp.status_code == 422

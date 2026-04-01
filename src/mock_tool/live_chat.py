@@ -15,8 +15,10 @@ from aiokafka import AIOKafkaConsumer
 from pydantic import BaseModel, Field
 
 try:
+    from .settings import get_settings
     from .ws_driver import _open_ws, _random_hex, _send_and_recv, _utc_now_iso
 except ImportError:  # pragma: no cover - direct script execution fallback
+    from settings import get_settings
     from ws_driver import _open_ws, _random_hex, _send_and_recv, _utc_now_iso
 
 Speaker = Literal["Agent", "Customer"]
@@ -45,9 +47,6 @@ class LiveChatPreviewRequest(BaseModel):
 
 
 class LiveChatStartRequest(LiveChatPreviewRequest):
-    ws_url: str = Field(..., min_length=1, max_length=2048)
-    kafka_bootstrap: str = Field(..., min_length=1, max_length=512)
-    kafka_topic: str = Field(..., min_length=1, max_length=512)
     conversation_id: str = Field(..., min_length=1, max_length=64)
     chars_per_second: float = Field(..., gt=0, le=200)
     pace_jitter_pct: float = Field(..., ge=0, le=1)
@@ -357,9 +356,10 @@ class LiveChatManager:
 
     async def start(self, request: LiveChatStartRequest) -> dict[str, Any]:
         parsed = parse_live_chat_csv(request.csv_text, request.csv_filename)
-        ws_url = _require_runtime_value("ws_url", request.ws_url)
-        kafka_bootstrap = _require_runtime_value("kafka_bootstrap", request.kafka_bootstrap)
-        kafka_topic = _require_runtime_value("kafka_topic", request.kafka_topic)
+        settings = get_settings()
+        ws_url = _require_runtime_value("ws_url", settings.default_ws_url)
+        kafka_bootstrap = settings.default_kafka_bootstrap
+        kafka_topic = settings.default_kafka_topic
         conversation_id = _require_runtime_value("conversation_id", request.conversation_id)
         async with self._lock:
             if self._task and not self._task.done():

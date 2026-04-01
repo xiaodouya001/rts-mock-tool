@@ -6,7 +6,7 @@ This tool simulates Fano Assist client behavior, sends transcript messages to Re
 
 1. **Start the supporting infrastructure** for Realtime Transcribe Service.
 
-Use the `transcribe_service` project's `docker-compose.yml`, or any equivalent local Redis and Kafka setup.
+Use the `transcribe_service` project's `docker-compose.yml`, or any equivalent local Kafka setup.
 
 2. **Start Realtime Transcribe Service** from its own project:
 
@@ -128,7 +128,7 @@ Real-time metrics such as sent count, ACK count, errors, active connections, TPS
 
 | Control | Description |
 |------|------|
-| WebSocket URL | The Realtime Transcribe Service endpoint, defaulting to `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
+| WebSocket (read-only) | Shown in the UI from server settings (`MOCK_CLIENT_DEFAULT_WS_URL` in the mock tool `.env` or environment). Scenario runs, load tests, Live-Chat, and Kafka replay use this value; it is not editable in the browser. |
 | Scenario test groups | **Group 1: Uses the scenario control value**: `N-01`, `N-02`, `N-03`, `E-09`. **Group 2: Fixed error scenarios**: `E-01`, `E-04`, `E-05`, `E-06`, `E-07`, `E-08`, `E-14`, `E-15` |
 | Benchmark preset | Fills the `300 / 400 / 500` benchmark presets with the values used during service-side concurrency tuning |
 | Scenario control value | The meaning changes by scenario; see the notes below |
@@ -163,7 +163,7 @@ The Kafka panel header includes:
 
 | Control | Description |
 |------|------|
-| Bootstrap / Topic | Used when starting the consumer |
+| Bootstrap / Topic | Read-only; taken from server environment (`MOCK_CLIENT_DEFAULT_KAFKA_*`) |
 | `conversationId` filter | Filters the message list by conversation ID; choosing "All conversations" disables the filter |
 | Start consumer / stop | Starts or stops the Kafka consumer |
 
@@ -175,7 +175,7 @@ Message-list behavior:
 
 ### 4. Mock Live-Chat
 
-`Mock Live-Chat` uploads one CSV, sends its rows to the WebSocket endpoint in order, and only renders transcript bubbles after the corresponding Kafka records for the same `conversationId` are consumed.
+`Mock Live-Chat` uploads one CSV, sends its rows to the WebSocket URL configured on the mock server (`MOCK_CLIENT_DEFAULT_WS_URL`), and only renders transcript bubbles after the corresponding Kafka records for the same `conversationId` are consumed.
 
 A ready-to-use sample file is included at [`src/mock_tool/samples/live_chat_sample.csv`](src/mock_tool/samples/live_chat_sample.csv).
 
@@ -232,8 +232,11 @@ curl -X POST "http://127.0.0.1:8088/api/load/stop"
 # Read status, including recent error summaries
 curl "http://127.0.0.1:8088/api/status"
 
-# Start Kafka consumption
-curl -X POST "http://127.0.0.1:8088/api/kafka/start"
+# Values shown in the UI (Kafka bootstrap/topic, kafka_mode, default WebSocket URL)
+curl "http://127.0.0.1:8088/api/ui-config"
+
+# Start Kafka consumption (bootstrap/topic come from MOCK_CLIENT_DEFAULT_KAFKA_*)
+curl -X POST "http://127.0.0.1:8088/api/kafka/start?conversation_id=my-conversation-id"
 
 # Stop Kafka consumption
 curl -X POST "http://127.0.0.1:8088/api/kafka/stop"
@@ -246,7 +249,7 @@ curl -X POST "http://127.0.0.1:8088/api/live/preview" \
 # Start Mock Live-Chat
 curl -X POST "http://127.0.0.1:8088/api/live/start" \
   -H "Content-Type: application/json" \
-  -d "{\"csv_text\":\"speaker,transcript\nAgent,hello\",\"csv_filename\":\"chat.csv\",\"ws_url\":\"ws://127.0.0.1:8080/ws/v1/realtime-transcriptions\",\"kafka_bootstrap\":\"127.0.0.1:9092\",\"kafka_topic\":\"AI_STAGING_TRANSCRIPTION\",\"conversation_id\":\"livechat-demo-1\",\"chars_per_second\":18,\"pace_jitter_pct\":0.15}"
+  -d "{\"csv_text\":\"speaker,transcript\nAgent,hello\",\"csv_filename\":\"chat.csv\",\"conversation_id\":\"livechat-demo-1\",\"chars_per_second\":18,\"pace_jitter_pct\":0.15}"
 
 # Stop / clear / inspect Live-Chat state
 curl -X POST "http://127.0.0.1:8088/api/live/stop"
