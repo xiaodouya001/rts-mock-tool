@@ -358,8 +358,8 @@ class LiveChatManager:
         parsed = parse_live_chat_csv(request.csv_text, request.csv_filename)
         settings = get_settings()
         ws_url = _require_runtime_value("ws_url", settings.default_ws_url)
-        kafka_bootstrap = settings.default_kafka_bootstrap
-        kafka_topic = settings.default_kafka_topic
+        kafka_bootstrap = settings.kafka_bootstrap
+        kafka_topic = settings.kafka_topic
         conversation_id = _require_runtime_value("conversation_id", request.conversation_id)
         async with self._lock:
             if self._task and not self._task.done():

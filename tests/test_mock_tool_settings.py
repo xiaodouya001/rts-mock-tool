@@ -31,8 +31,8 @@ def test_get_settings_reads_prefixed_environment(monkeypatch):
     monkeypatch.setenv("MOCK_CLIENT_AUTH_SIGNING_MATERIAL", "signing-material-123")
     monkeypatch.setenv("MOCK_CLIENT_AUTH_SUBJECT", "fano-mock")
     monkeypatch.setenv("MOCK_CLIENT_AUTH_TTL_DAYS", "45")
-    monkeypatch.setenv("MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP", "kafka.example:9092")
-    monkeypatch.setenv("MOCK_CLIENT_DEFAULT_KAFKA_TOPIC", "TOPIC_A")
+    monkeypatch.setenv("MOCK_CLIENT_KAFKA_BOOTSTRAP", "kafka.example:9092")
+    monkeypatch.setenv("MOCK_CLIENT_KAFKA_TOPIC", "TOPIC_A")
 
     settings = mock_settings.get_settings()
 
@@ -46,8 +46,8 @@ def test_get_settings_reads_prefixed_environment(monkeypatch):
     assert settings.auth_signing_material == "signing-material-123"
     assert settings.auth_subject == "fano-mock"
     assert settings.auth_ttl_days == 45
-    assert settings.default_kafka_bootstrap == "kafka.example:9092"
-    assert settings.default_kafka_topic == "TOPIC_A"
+    assert settings.kafka_bootstrap == "kafka.example:9092"
+    assert settings.kafka_topic == "TOPIC_A"
     assert settings.kafka_mode == "local"
     assert settings.kafka_aws_region is None
     assert settings.kafka_ssl_ca_file is None
@@ -109,8 +109,8 @@ def test_build_auth_token_returns_none_when_auth_is_disabled():
         auth_signing_material="signing-material",
         auth_subject="mock-client",
         auth_ttl_days=30,
-        default_kafka_bootstrap="127.0.0.1:9092",
-        default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_bootstrap="127.0.0.1:9092",
+        kafka_topic="AI_STAGING_TRANSCRIPTION",
         kafka_mode="local",
         kafka_aws_region=None,
         kafka_ssl_ca_file=None,
@@ -132,8 +132,8 @@ def test_build_auth_token_prefers_explicit_token():
         auth_signing_material="signing-material",
         auth_subject="mock-client",
         auth_ttl_days=30,
-        default_kafka_bootstrap="127.0.0.1:9092",
-        default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_bootstrap="127.0.0.1:9092",
+        kafka_topic="AI_STAGING_TRANSCRIPTION",
         kafka_mode="local",
         kafka_aws_region=None,
         kafka_ssl_ca_file=None,
@@ -175,8 +175,8 @@ def test_build_auth_token_generates_hs256_jwt_from_signing_material():
         auth_signing_material=signing_material,
         auth_subject="mock-client",
         auth_ttl_days=30,
-        default_kafka_bootstrap="127.0.0.1:9092",
-        default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_bootstrap="127.0.0.1:9092",
+        kafka_topic="AI_STAGING_TRANSCRIPTION",
         kafka_mode="local",
         kafka_aws_region=None,
         kafka_ssl_ca_file=None,
@@ -224,7 +224,7 @@ def test_load_env_file_supports_local_dotenv():
     env_path = Path(__file__).with_name("_test_mock_tool.env")
     env_path.write_text(
         "MOCK_CLIENT_LOG_LEVEL=WARNING\n"
-        "MOCK_CLIENT_DEFAULT_KAFKA_TOPIC='topic-b'\n",
+        "MOCK_CLIENT_KAFKA_TOPIC='topic-b'\n",
         encoding="utf-8",
     )
 
@@ -234,7 +234,7 @@ def test_load_env_file_supports_local_dotenv():
         env_path.unlink(missing_ok=True)
 
     assert values["MOCK_CLIENT_LOG_LEVEL"] == "WARNING"
-    assert values["MOCK_CLIENT_DEFAULT_KAFKA_TOPIC"] == "topic-b"
+    assert values["MOCK_CLIENT_KAFKA_TOPIC"] == "topic-b"
 
 
 def test_load_env_file_ignores_blank_comment_and_invalid_lines(tmp_path):
@@ -292,39 +292,12 @@ def test_parse_positive_int_rejects_zero_and_negative():
         mock_settings._parse_positive_int("MOCK_CLIENT_AUTH_TTL_DAYS", "0")
 
 
-def test_get_settings_prefers_mock_kafka_env_over_service_names(monkeypatch):
-    mock_settings.get_settings.cache_clear()
-    monkeypatch.setenv("KAFKA_MODE", "local")
-    monkeypatch.setenv("MOCK_CLIENT_KAFKA_MODE", "aws_msk")
-    monkeypatch.setenv("KAFKA_AWS_REGION", "from-service")
-    monkeypatch.setenv("MOCK_CLIENT_KAFKA_AWS_REGION", "from-mock")
-
-    settings = mock_settings.get_settings()
-
-    assert settings.kafka_mode == "aws_msk"
-    assert settings.kafka_aws_region == "from-mock"
-
-
-def test_get_settings_falls_back_to_service_kafka_env_when_mock_missing(monkeypatch):
-    mock_settings.get_settings.cache_clear()
-    monkeypatch.delenv("MOCK_CLIENT_KAFKA_MODE", raising=False)
-    monkeypatch.setenv("KAFKA_MODE", "aws_msk")
-    monkeypatch.delenv("MOCK_CLIENT_KAFKA_AWS_REGION", raising=False)
-    monkeypatch.setenv("KAFKA_AWS_REGION", "ap-southeast-1")
-
-    settings = mock_settings.get_settings()
-
-    assert settings.kafka_mode == "aws_msk"
-    assert settings.kafka_aws_region == "ap-southeast-1"
-
-
 def test_get_settings_aws_msk_requires_region(monkeypatch):
     mock_settings.get_settings.cache_clear()
     monkeypatch.setenv("MOCK_CLIENT_KAFKA_MODE", "aws_msk")
     monkeypatch.delenv("MOCK_CLIENT_KAFKA_AWS_REGION", raising=False)
-    monkeypatch.delenv("KAFKA_AWS_REGION", raising=False)
 
-    with pytest.raises(ValueError, match="KAFKA_AWS_REGION"):
+    with pytest.raises(ValueError, match="MOCK_CLIENT_KAFKA_AWS_REGION"):
         mock_settings.get_settings()
 
 
@@ -342,41 +315,31 @@ def test_parse_kafka_mode_rejects_unknown():
 
 
 def test_parse_kafka_mode_normalizes_case():
-    assert mock_settings._parse_kafka_mode("KAFKA_MODE", "LOCAL") == "local"
-    assert mock_settings._parse_kafka_mode("KAFKA_MODE", "AWS_MSK") == "aws_msk"
+    assert mock_settings._parse_kafka_mode("MOCK_CLIENT_KAFKA_MODE", "LOCAL") == "local"
+    assert mock_settings._parse_kafka_mode("MOCK_CLIENT_KAFKA_MODE", "AWS_MSK") == "aws_msk"
 
 
 def test_parse_kafka_mode_rejects_admin():
-    with pytest.raises(ValueError, match="KAFKA_MODE must be one of"):
-        mock_settings._parse_kafka_mode("KAFKA_MODE", "admin")
+    with pytest.raises(ValueError, match="MOCK_CLIENT_KAFKA_MODE"):
+        mock_settings._parse_kafka_mode("MOCK_CLIENT_KAFKA_MODE", "admin")
 
 
-def test_get_setting_prefer_mock_reads_from_env_file(tmp_path, monkeypatch):
+def test_get_settings_kafka_bootstrap_topic_from_dotenv_mock_keys_only(monkeypatch, tmp_path):
     mock_settings.get_settings.cache_clear()
     env_path = tmp_path / ".env"
-    env_path.write_text("MOCK_CLIENT_KAFKA_MODE=aws_msk\nKAFKA_AWS_REGION=from-file\n", encoding="utf-8")
+    env_path.write_text(
+        "MOCK_CLIENT_KAFKA_BOOTSTRAP=file-only:9092\nMOCK_CLIENT_KAFKA_TOPIC=file-topic\n",
+        encoding="utf-8",
+    )
     file_vals = mock_settings._load_env_file(env_path)
     monkeypatch.setattr(mock_settings, "_env_file_values", lambda: file_vals)
-    monkeypatch.delenv("MOCK_CLIENT_KAFKA_MODE", raising=False)
-    monkeypatch.delenv("KAFKA_MODE", raising=False)
-    monkeypatch.delenv("MOCK_CLIENT_KAFKA_AWS_REGION", raising=False)
-    monkeypatch.delenv("KAFKA_AWS_REGION", raising=False)
+    for key in ("MOCK_CLIENT_KAFKA_BOOTSTRAP", "MOCK_CLIENT_KAFKA_TOPIC"):
+        monkeypatch.delenv(key, raising=False)
 
-    assert mock_settings._get_setting_prefer_mock("MOCK_CLIENT_KAFKA_MODE", "KAFKA_MODE", "local") == "aws_msk"
-    assert mock_settings._get_optional_prefer_mock(
-        "MOCK_CLIENT_KAFKA_AWS_REGION",
-        "KAFKA_AWS_REGION",
-    ) == "from-file"
+    settings = mock_settings.get_settings()
 
-
-def test_get_setting_prefer_mock_service_name_in_file_when_mock_key_absent(tmp_path, monkeypatch):
-    mock_settings.get_settings.cache_clear()
-    env_path = tmp_path / ".env"
-    env_path.write_text("KAFKA_MODE=local\n", encoding="utf-8")
-    file_vals = mock_settings._load_env_file(env_path)
-    monkeypatch.setattr(mock_settings, "_env_file_values", lambda: file_vals)
-
-    assert mock_settings._get_setting_prefer_mock("MOCK_CLIENT_KAFKA_MODE", "KAFKA_MODE", "x") == "local"
+    assert settings.kafka_bootstrap == "file-only:9092"
+    assert settings.kafka_topic == "file-topic"
 
 
 def test_build_auth_token_returns_none_when_signing_material_missing():
@@ -391,8 +354,8 @@ def test_build_auth_token_returns_none_when_signing_material_missing():
         auth_signing_material=None,
         auth_subject="mock-client",
         auth_ttl_days=30,
-        default_kafka_bootstrap="127.0.0.1:9092",
-        default_kafka_topic="AI_STAGING_TRANSCRIPTION",
+        kafka_bootstrap="127.0.0.1:9092",
+        kafka_topic="AI_STAGING_TRANSCRIPTION",
         kafka_mode="local",
         kafka_aws_region=None,
         kafka_ssl_ca_file=None,

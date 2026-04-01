@@ -145,6 +145,18 @@ function switchTab(name) {
 })();
 
 // ---------------------------------------------------------------------------
+// Read-only config labels (ellipsis + tooltip; not editable inputs)
+// ---------------------------------------------------------------------------
+function setTruncatingReadonly(id, value, emptyTitle) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const raw = value != null ? String(value).trim() : '';
+  const display = raw || '—';
+  el.textContent = display;
+  el.title = display === '—' ? emptyTitle : display;
+}
+
+// ---------------------------------------------------------------------------
 // SSE
 // ---------------------------------------------------------------------------
 async function loadUiConfig() {
@@ -155,29 +167,27 @@ async function loadUiConfig() {
     _uiKafkaTopic = String(data.kafka_topic || '').trim();
     _uiWsUrl = String(data.ws_url || '').trim();
 
-    const setText = (id, text) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = text;
-    };
-    setText('kafka-bootstrap-display', _uiKafkaBootstrap || '—');
-    setText('kafka-topic-display', _uiKafkaTopic || '—');
-    const wsDisp = _uiWsUrl || '—';
-    setText('scenario-ws-display', wsDisp);
-    setText('load-ws-display', wsDisp);
-    setText('livechat-ws-display', wsDisp);
-    const lk = document.getElementById('livechat-kafka-summary');
-    if (lk) {
-      lk.textContent = _uiKafkaBootstrap && _uiKafkaTopic ? `${_uiKafkaBootstrap} · ${_uiKafkaTopic}` : '—';
-    }
+    setTruncatingReadonly(
+      'kafka-bootstrap-display',
+      _uiKafkaBootstrap,
+      'MOCK_CLIENT_KAFKA_BOOTSTRAP (server .env)',
+    );
+    setTruncatingReadonly(
+      'kafka-topic-display',
+      _uiKafkaTopic,
+      'MOCK_CLIENT_KAFKA_TOPIC (server .env)',
+    );
   } catch (e) {
-    const setText = (id, text) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = text;
-    };
-    setText('kafka-bootstrap-display', '(unavailable)');
-    setText('kafka-topic-display', '(unavailable)');
-    const lk = document.getElementById('livechat-kafka-summary');
-    if (lk) lk.textContent = '—';
+    const kbEl = document.getElementById('kafka-bootstrap-display');
+    const ktEl = document.getElementById('kafka-topic-display');
+    if (kbEl) {
+      kbEl.textContent = '(unavailable)';
+      kbEl.title = 'MOCK_CLIENT_KAFKA_BOOTSTRAP (server .env)';
+    }
+    if (ktEl) {
+      ktEl.textContent = '(unavailable)';
+      ktEl.title = 'MOCK_CLIENT_KAFKA_TOPIC (server .env)';
+    }
   }
 }
 
@@ -1028,22 +1038,12 @@ function applyLiveChatSnapshot(snapshot, options = {}) {
     resetLiveChatThread();
     setLiveChatConversationPill('');
     setLiveChatStatusBanner(_liveChatPrimaryMessage(null), 'idle');
-    const liveWsClear = document.getElementById('livechat-ws-display');
-    if (liveWsClear) liveWsClear.textContent = _uiWsUrl || '—';
-    const liveKsClear = document.getElementById('livechat-kafka-summary');
-    if (liveKsClear) {
-      liveKsClear.textContent =
-        _uiKafkaBootstrap && _uiKafkaTopic ? `${_uiKafkaBootstrap} · ${_uiKafkaTopic}` : '—';
-    }
     updateLiveChatControls(null);
     return;
   }
 
   const {
     conversation_id,
-    ws_url,
-    kafka_bootstrap,
-    kafka_topic,
     chars_per_second,
     pace_jitter_pct,
     preview,
@@ -1052,17 +1052,6 @@ function applyLiveChatSnapshot(snapshot, options = {}) {
 
   const cpsInput = document.getElementById('livechat-chars-per-second');
   const jitterInput = document.getElementById('livechat-jitter-pct');
-  const liveWs = document.getElementById('livechat-ws-display');
-  if (liveWs) {
-    const w = (ws_url != null && String(ws_url).trim()) || _uiWsUrl;
-    liveWs.textContent = w || '—';
-  }
-  const liveKs = document.getElementById('livechat-kafka-summary');
-  if (liveKs) {
-    const kb = kafka_bootstrap || _uiKafkaBootstrap;
-    const kt = kafka_topic || _uiKafkaTopic;
-    liveKs.textContent = kb && kt ? `${kb} · ${kt}` : '—';
-  }
   if (cpsInput && chars_per_second != null) cpsInput.value = String(chars_per_second);
   if (jitterInput && pace_jitter_pct != null) jitterInput.value = String(Math.round(Number(pace_jitter_pct) * 100));
 

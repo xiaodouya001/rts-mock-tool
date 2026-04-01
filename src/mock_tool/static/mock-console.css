@@ -239,10 +239,12 @@ header .tag {
   font-weight: var(--fw-ui);
 }
 .scenario-page {
-  --control-panel-width: 380px;
+  /* Wider sidebar so controls + scenario buttons fit without horizontal clip */
+  --control-panel-width: min(440px, max(360px, 28vw));
   height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-columns: var(--control-panel-width) 1fr;
+  grid-template-columns: var(--control-panel-width) minmax(0, 1fr);
   gap: 0;
   background: var(--bg);
 }
@@ -258,6 +260,9 @@ header .tag {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* Allow grid/flex children to shrink so inner overflow-y:auto can scroll */
+  min-height: 0;
+  min-width: 0;
 }
 .content-panel {
   min-height: 0;
@@ -304,7 +309,9 @@ header .tag {
   border-color: var(--accent) !important;
 }
 .panel-body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: auto;
   overflow-y: auto;
   padding: 14px 18px;
 }
@@ -353,20 +360,10 @@ header .tag {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
-.scenario-server-config-strip,
-.load-server-config-strip {
-  width: 100%;
-}
-.livechat-server-config-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  margin-top: 16px;
-}
-.livechat-server-config-strip .livechat-config-readonly-block {
-  flex: 1 1 160px;
-  min-width: 140px;
+.livechat-sidebar-card {
+  min-width: 0;
 }
 .scenario-control-tabs {
   align-self: flex-start;
@@ -431,8 +428,8 @@ header .tag {
 }
 @media (max-width: 1200px) {
   .scenario-page {
-    --control-panel-width: 320px;
-    grid-template-columns: var(--control-panel-width) 1fr;
+    --control-panel-width: min(400px, 100%);
+    grid-template-columns: var(--control-panel-width) minmax(0, 1fr);
   }
 }
 @media (max-width: 1100px) {
@@ -730,6 +727,7 @@ button.btn-scenario {
   align-items: center;
   justify-content: flex-start;
   width: 100%;
+  min-width: 0;
   min-height: 38px;
   padding: 7px 11px;
   font-size: var(--fs-sm);
@@ -738,6 +736,8 @@ button.btn-scenario {
   color: var(--text);
   background: var(--bg3);
   text-align: left;
+  white-space: normal;
+  word-break: break-word;
 }
 button.btn-scenario:hover {
   color: var(--accent);
@@ -920,7 +920,7 @@ button.success:hover {
 .kafka-toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 10px 14px;
   margin-bottom: 12px;
   padding-bottom: 12px;
@@ -929,9 +929,23 @@ button.success:hover {
 .kafka-toolbar .form-group {
   min-width: 0;
 }
+.kafka-toolbar-readonly-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  width: min(100%, 280px);
+  max-width: 320px;
+}
+.kafka-toolbar-readonly-col .form-group {
+  margin: 0;
+  min-width: 0;
+}
 .kafka-toolbar .kafka-consumer-group {
-  flex: 1 1 420px;
-  max-width: 520px;
+  flex: 1 1 260px;
+  min-width: 0;
+  max-width: none;
 }
 .kafka-toolbar .form-group label .kafka-inline-status {
   font-size: var(--fs-overline);
@@ -1282,24 +1296,36 @@ input.cp-select::placeholder {
   background: var(--accent);
   border-radius: 2px 2px 0 0;
 }
-.tab-content { display: none; height: calc(100vh - 57px); }
+.tab-content {
+  display: none;
+  height: calc(100vh - 57px);
+  min-height: 0;
+  overflow: hidden;
+}
 .tab-content.active { display: block; }
 
 /* Load test tab layout */
 .load-page {
   height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 408px 1fr;
+  grid-template-columns: clamp(300px, 36vw, 420px) minmax(0, 1fr);
   gap: 1px;
   background: rgba(120, 140, 180, 0.12);
 }
 .load-page > .panel { background: var(--bg); }
-.load-page .load-controls { overflow-y: auto; }
+.load-page .load-controls {
+  min-height: 0;
+  overflow: hidden;
+}
 .load-page .load-controls .panel-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 10px 12px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
 }
 .load-control-card {
   display: flex;
@@ -1513,8 +1539,9 @@ input.cp-select::placeholder {
 }
 .livechat-page {
   height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  grid-template-columns: clamp(300px, 32vw, 460px) minmax(0, 1fr);
   gap: 1px;
   background:
     radial-gradient(circle at top left, rgba(139, 233, 253, 0.08), transparent 28%),
@@ -1534,12 +1561,17 @@ input.cp-select::placeholder {
   gap: 12px;
 }
 .livechat-controls {
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
 }
 .livechat-controls .panel-body {
   display: grid;
   gap: 14px;
   align-content: start;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: auto;
 }
 .livechat-sidebar-tabs {
   width: 100%;
@@ -1951,6 +1983,15 @@ input.cp-select::placeholder {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   color: var(--text);
+  min-width: 0;
+  flex: 1 1 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.livechat-file-meta .panel-header-action {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .livechat-file-name.is-invalid {
   color: #ffb3b3;
@@ -2339,12 +2380,25 @@ input.cp-select::placeholder {
   align-items: center;
   word-break: break-all;
 }
-.livechat-config-readonly-block {
-  grid-column: 1 / -1;
-}
-.livechat-config-readonly-block .cp-label {
+/* Single-line ellipsis in tight toolbars (long MSK hostnames, topic names). */
+.config-readonly-value--truncate {
   display: block;
-  margin-bottom: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
+}
+/* Visually distinct from text inputs / combobox (dashed = read-only from server). */
+.config-readonly-value--panel-hint {
+  border-style: dashed;
+  background: var(--bg3);
+  cursor: default;
+  user-select: text;
+}
+.config-readonly-value--panel-hint:focus {
+  outline: none;
 }
 
 /* Scrollbar */

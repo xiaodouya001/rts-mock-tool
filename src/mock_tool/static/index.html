@@ -69,16 +69,6 @@
               <tbody id="livechat-preview-rows"></tbody>
             </table>
           </div>
-          <div class="livechat-server-config-strip">
-            <div class="livechat-config-readonly-block">
-              <span class="cp-label">WebSocket <span class="config-from-env">(.env)</span></span>
-              <div id="livechat-ws-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_WS_URL">—</div>
-            </div>
-            <div class="livechat-config-readonly-block">
-              <span class="cp-label">Kafka <span class="config-from-env">(.env)</span></span>
-              <div id="livechat-kafka-summary" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_KAFKA_*">—</div>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -158,12 +148,6 @@
     </div>
     <div class="panel-body control-strip" id="control-panel-body">
       <section class="cp-card scenario-control-card">
-        <div class="scenario-server-config-strip">
-          <div class="form-group kafka-config-readonly-group" style="width:100%">
-            <label>WebSocket <span class="config-from-env">(.env)</span></label>
-            <div id="scenario-ws-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_WS_URL">—</div>
-          </div>
-        </div>
         <div class="scenario-control-pane" id="scenario-controls-pane-tests">
           <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Scenario Tests</h3>
           <div class="cp-scenario-toolbar">
@@ -240,13 +224,15 @@
       </div>
       <div class="panel-body kafka-panel-body">
         <div class="kafka-toolbar">
-          <div class="form-group kafka-config-readonly-group" style="flex:1;min-width:140px;max-width:240px">
-            <label>Bootstrap <span class="config-from-env">(.env)</span></label>
-            <div id="kafka-bootstrap-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP">—</div>
-          </div>
-          <div class="form-group kafka-config-readonly-group" style="flex:1.2;min-width:160px;max-width:280px">
-            <label>Topic <span class="config-from-env">(.env)</span></label>
-            <div id="kafka-topic-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_KAFKA_TOPIC">—</div>
+          <div class="kafka-toolbar-readonly-col">
+            <div class="form-group kafka-config-readonly-group">
+              <label title="From server .env (MOCK_CLIENT_KAFKA_BOOTSTRAP)">Bootstrap</label>
+              <div id="kafka-bootstrap-display" class="config-readonly-value config-readonly-value--truncate config-readonly-value--panel-hint">—</div>
+            </div>
+            <div class="form-group kafka-config-readonly-group">
+              <label title="From server .env (MOCK_CLIENT_KAFKA_TOPIC)">Topic</label>
+              <div id="kafka-topic-display" class="config-readonly-value config-readonly-value--truncate config-readonly-value--panel-hint">—</div>
+            </div>
           </div>
           <div class="form-group kafka-consumer-group">
             <label>Kafka Consumer<span id="kafka-status" class="kafka-inline-status"></span></label>
@@ -296,12 +282,6 @@
     <div class="panel-header">Load-Test Controls</div>
     <div class="panel-body">
       <section class="cp-card load-control-card">
-        <div class="load-server-config-strip">
-          <div class="form-group kafka-config-readonly-group" style="width:100%">
-            <label>WebSocket <span class="config-from-env">(.env)</span></label>
-            <div id="load-ws-display" class="config-readonly-value" title="MOCK_CLIENT_DEFAULT_WS_URL">—</div>
-          </div>
-        </div>
         <div class="load-control-pane" id="load-controls-pane-parameters">
           <p class="cp-load-hint">
             Each connection sends continuous <code>SESSION_ONGOING</code> messages by sequence number, followed by one final <code>SESSION_COMPLETE</code>.

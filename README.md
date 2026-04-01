@@ -32,20 +32,15 @@ poetry install --with dev
 cp .env.example .env
 ```
 
-Supported mock-tool variables:
+Supported mock-tool variables (see `.env.example` for grouping):
 
-- `MOCK_CLIENT_HOST`
-- `MOCK_CLIENT_PORT`
-- `MOCK_CLIENT_LOG_LEVEL`
-- `MOCK_CLIENT_LOG_FORMAT`
-- `MOCK_CLIENT_DEFAULT_WS_URL`
-- `AUTH_ENABLED`
-- `MOCK_CLIENT_AUTH_TOKEN`
-- `MOCK_CLIENT_AUTH_SIGNING_MATERIAL`
-- `MOCK_CLIENT_AUTH_SUBJECT`
-- `MOCK_CLIENT_AUTH_TTL_DAYS`
-- `MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP`
-- `MOCK_CLIENT_DEFAULT_KAFKA_TOPIC`
+**Server:** `MOCK_CLIENT_HOST`, `MOCK_CLIENT_PORT`, `MOCK_CLIENT_LOG_LEVEL`, `MOCK_CLIENT_LOG_FORMAT`
+
+**WebSocket target:** `MOCK_CLIENT_DEFAULT_WS_URL`
+
+**Kafka:** `MOCK_CLIENT_KAFKA_BOOTSTRAP`, `MOCK_CLIENT_KAFKA_TOPIC`, `MOCK_CLIENT_KAFKA_MODE`, optional `MOCK_CLIENT_KAFKA_AWS_REGION`, `MOCK_CLIENT_KAFKA_SSL_CA_FILE`, `MOCK_CLIENT_KAFKA_AWS_DEBUG_CREDS`. These names are mock-tool-only (not `KAFKA_*` from transcribe-service). Bootstrap and topic default to `127.0.0.1:9092` and `AI_STAGING_TRANSCRIPTION` when unset.
+
+**Auth:** `AUTH_ENABLED`, `MOCK_CLIENT_AUTH_TOKEN`, `MOCK_CLIENT_AUTH_SIGNING_MATERIAL`, `MOCK_CLIENT_AUTH_SUBJECT`, `MOCK_CLIENT_AUTH_TTL_DAYS`
 
 When `AUTH_ENABLED=true`, the mock tool resolves credentials in this order:
 
@@ -128,7 +123,7 @@ Real-time metrics such as sent count, ACK count, errors, active connections, TPS
 
 | Control | Description |
 |------|------|
-| WebSocket (read-only) | Shown in the UI from server settings (`MOCK_CLIENT_DEFAULT_WS_URL` in the mock tool `.env` or environment). Scenario runs, load tests, Live-Chat, and Kafka replay use this value; it is not editable in the browser. |
+| Server WebSocket URL | Set on the mock server (`MOCK_CLIENT_DEFAULT_WS_URL` in `.env` or environment). Not shown in the UI; used for scenarios, load tests, Live-Chat, and Kafka replay. |
 | Scenario test groups | **Group 1: Uses the scenario control value**: `N-01`, `N-02`, `N-03`, `E-09`. **Group 2: Fixed error scenarios**: `E-01`, `E-04`, `E-05`, `E-06`, `E-07`, `E-08`, `E-14`, `E-15` |
 | Benchmark preset | Fills the `300 / 400 / 500` benchmark presets with the values used during service-side concurrency tuning |
 | Scenario control value | The meaning changes by scenario; see the notes below |
@@ -163,7 +158,7 @@ The Kafka panel header includes:
 
 | Control | Description |
 |------|------|
-| Bootstrap / Topic | Read-only; taken from server environment (`MOCK_CLIENT_DEFAULT_KAFKA_*`) |
+| Bootstrap / Topic | Read-only; from server settings (`MOCK_CLIENT_KAFKA_BOOTSTRAP` / `MOCK_CLIENT_KAFKA_TOPIC`) |
 | `conversationId` filter | Filters the message list by conversation ID; choosing "All conversations" disables the filter |
 | Start consumer / stop | Starts or stops the Kafka consumer |
 
@@ -232,10 +227,10 @@ curl -X POST "http://127.0.0.1:8088/api/load/stop"
 # Read status, including recent error summaries
 curl "http://127.0.0.1:8088/api/status"
 
-# Values shown in the UI (Kafka bootstrap/topic, kafka_mode, default WebSocket URL)
+# Server config JSON (Kafka bootstrap/topic and ws_url for tools; Scenario tab shows bootstrap/topic only)
 curl "http://127.0.0.1:8088/api/ui-config"
 
-# Start Kafka consumption (bootstrap/topic come from MOCK_CLIENT_DEFAULT_KAFKA_*)
+# Start Kafka consumption (bootstrap/topic from MOCK_CLIENT_KAFKA_* or KAFKA_* fallbacks)
 curl -X POST "http://127.0.0.1:8088/api/kafka/start?conversation_id=my-conversation-id"
 
 # Stop Kafka consumption

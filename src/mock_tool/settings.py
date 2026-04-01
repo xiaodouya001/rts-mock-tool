@@ -58,33 +58,6 @@ def _get_optional_setting(name: str) -> str | None:
     return normalized or None
 
 
-def _get_setting_prefer_mock(mock_name: str, service_name: str, default: str) -> str:
-    """Prefer ``MOCK_CLIENT_*`` then fall back to transcribe-service names (shared ``.env``)."""
-    if mock_name in os.environ:
-        return os.environ[mock_name]
-    if service_name in os.environ:
-        return os.environ[service_name]
-    file_vals = _env_file_values()
-    if mock_name in file_vals:
-        return file_vals[mock_name]
-    if service_name in file_vals:
-        return file_vals[service_name]
-    return default
-
-
-def _get_optional_prefer_mock(mock_name: str, service_name: str) -> str | None:
-    for key in (mock_name, service_name):
-        if key in os.environ:
-            normalized = os.environ[key].strip()
-            return normalized or None
-    file_vals = _env_file_values()
-    for key in (mock_name, service_name):
-        if key in file_vals:
-            normalized = file_vals[key].strip()
-            return normalized or None
-    return None
-
-
 def _require_non_empty(name: str, value: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -154,8 +127,8 @@ class MockClientSettings:
     auth_signing_material: str | None
     auth_subject: str
     auth_ttl_days: int
-    default_kafka_bootstrap: str
-    default_kafka_topic: str
+    kafka_bootstrap: str
+    kafka_topic: str
     kafka_mode: Literal["local", "aws_msk"]
     kafka_aws_region: str | None
     kafka_ssl_ca_file: str | None
@@ -193,34 +166,28 @@ def generate_hs256_token(
 
 @lru_cache(maxsize=1)
 def get_settings() -> MockClientSettings:
-    kafka_mode_raw = _get_setting_prefer_mock(
+    kafka_mode = _parse_kafka_mode(
         "MOCK_CLIENT_KAFKA_MODE",
-        "KAFKA_MODE",
-        "local",
+        _get_setting("MOCK_CLIENT_KAFKA_MODE", "local"),
     )
-    kafka_mode = _parse_kafka_mode("MOCK_CLIENT_KAFKA_MODE", kafka_mode_raw)
-    kafka_aws_region = _get_optional_prefer_mock(
-        "MOCK_CLIENT_KAFKA_AWS_REGION",
-        "KAFKA_AWS_REGION",
-    )
-    kafka_ssl_ca_file = _get_optional_prefer_mock(
-        "MOCK_CLIENT_KAFKA_SSL_CA_FILE",
-        "KAFKA_SSL_CA_FILE",
-    )
-    kafka_aws_debug_raw = _get_setting_prefer_mock(
-        "MOCK_CLIENT_KAFKA_AWS_DEBUG_CREDS",
-        "KAFKA_AWS_DEBUG_CREDS",
-        "false",
-    )
+    kafka_aws_region = _get_optional_setting("MOCK_CLIENT_KAFKA_AWS_REGION")
+    kafka_ssl_ca_file = _get_optional_setting("MOCK_CLIENT_KAFKA_SSL_CA_FILE")
     kafka_aws_debug_creds = _parse_bool(
         "MOCK_CLIENT_KAFKA_AWS_DEBUG_CREDS",
-        kafka_aws_debug_raw,
+        _get_setting("MOCK_CLIENT_KAFKA_AWS_DEBUG_CREDS", "false"),
+    )
+    kafka_bootstrap = _require_non_empty(
+        "MOCK_CLIENT_KAFKA_BOOTSTRAP",
+        _get_setting("MOCK_CLIENT_KAFKA_BOOTSTRAP", "127.0.0.1:9092"),
+    )
+    kafka_topic = _require_non_empty(
+        "MOCK_CLIENT_KAFKA_TOPIC",
+        _get_setting("MOCK_CLIENT_KAFKA_TOPIC", "AI_STAGING_TRANSCRIPTION"),
     )
 
     if kafka_mode == "aws_msk" and not kafka_aws_region:
         raise ValueError(
-            "MOCK_CLIENT_KAFKA_AWS_REGION or KAFKA_AWS_REGION is required when "
-            "MOCK_CLIENT_KAFKA_MODE or KAFKA_MODE is aws_msk"
+            "MOCK_CLIENT_KAFKA_AWS_REGION must be set when MOCK_CLIENT_KAFKA_MODE=aws_msk"
         )
 
     return MockClientSettings(
@@ -261,14 +228,8 @@ def get_settings() -> MockClientSettings:
             "MOCK_CLIENT_AUTH_TTL_DAYS",
             _get_setting("MOCK_CLIENT_AUTH_TTL_DAYS", "30"),
         ),
-        default_kafka_bootstrap=_require_non_empty(
-            "MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP",
-            _get_setting("MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP", "127.0.0.1:9092"),
-        ),
-        default_kafka_topic=_require_non_empty(
-            "MOCK_CLIENT_DEFAULT_KAFKA_TOPIC",
-            _get_setting("MOCK_CLIENT_DEFAULT_KAFKA_TOPIC", "AI_STAGING_TRANSCRIPTION"),
-        ),
+        kafka_bootstrap=kafka_bootstrap,
+        kafka_topic=kafka_topic,
         kafka_mode=kafka_mode,
         kafka_aws_region=kafka_aws_region,
         kafka_ssl_ca_file=kafka_ssl_ca_file,

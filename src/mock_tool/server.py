@@ -312,8 +312,8 @@ async def ui_config():
     """Read-only Kafka and WebSocket targets for the UI (from server settings / .env)."""
     s = SETTINGS
     return {
-        "kafka_bootstrap": s.default_kafka_bootstrap,
-        "kafka_topic": s.default_kafka_topic,
+        "kafka_bootstrap": s.kafka_bootstrap,
+        "kafka_topic": s.kafka_topic,
         "kafka_mode": s.kafka_mode,
         "ws_url": s.default_ws_url,
     }
@@ -362,8 +362,8 @@ async def kafka_start(
     """Start the Kafka consumer and forward messages through SSE."""
     global _kafka_viewer, _kafka_forward_task
 
-    bootstrap = SETTINGS.default_kafka_bootstrap
-    topic = SETTINGS.default_kafka_topic
+    bootstrap = SETTINGS.kafka_bootstrap
+    topic = SETTINGS.kafka_topic
 
     if _kafka_forward_task and not _kafka_forward_task.done():
         _kafka_forward_task.cancel()
@@ -406,8 +406,8 @@ async def kafka_conversations():
     """Scan the topic once and return distinct conversationId values for selection."""
     try:
         return await scan_topic_conversations(
-            bootstrap_servers=SETTINGS.default_kafka_bootstrap,
-            topic=SETTINGS.default_kafka_topic,
+            bootstrap_servers=SETTINGS.kafka_bootstrap,
+            topic=SETTINGS.kafka_topic,
             connection_extra_kwargs=_kafka_connection_extra(),
             kafka_mode=SETTINGS.kafka_mode,
         )
