@@ -128,14 +128,21 @@ async def lifespan(app: FastAPI):
 
 STATIC_DIR = Path(__file__).parent / "static"
 INDEX_HTML_PATH = STATIC_DIR / "index.html"
+CSS_PATH = STATIC_DIR / "mock-console.css"
+JS_PATH = STATIC_DIR / "mock-console.js"
 INDEX_HTML_TEMPLATE = INDEX_HTML_PATH.read_text(encoding="utf-8")
+_ASSET_REV = str(max(int(path.stat().st_mtime_ns) for path in (INDEX_HTML_PATH, CSS_PATH, JS_PATH)))
 
 
 def _render_index_html(base_path: str) -> HTMLResponse:
     normalized_base = base_path.rstrip("/")
     content = INDEX_HTML_TEMPLATE.replace("__MOCK_TOOL_BASE_URL__", normalized_base)
     content = content.replace("__MOCK_TOOL_BASE_PATH_VALUE__", normalized_base)
-    return HTMLResponse(content=content)
+    content = content.replace("__MOCK_TOOL_ASSET_REV__", _ASSET_REV)
+    return HTMLResponse(
+        content=content,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 inner_app = FastAPI(title="Mock Client", lifespan=lifespan)

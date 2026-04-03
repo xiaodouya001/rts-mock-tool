@@ -705,6 +705,42 @@ async def test_load_single_conversation_records_server_processing_ms(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_load_single_conversation_emits_progress_stats_during_run(monkeypatch):
+    ws = _FakeWs()
+    monkeypatch.setattr(ws_driver, "_open_ws", AsyncMock(return_value=ws))
+
+    async def fake_send_and_recv(_ws, _msg, *, on_sent=None):
+        if on_sent is not None:
+            on_sent()
+        event_type = _msg["metaData"]["eventType"]
+        return {
+            "metaData": {
+                "eventType": "TRANSCRIPT_ACK" if event_type == "SESSION_ONGOING" else "EOL_ACK"
+            }
+        }
+
+    monkeypatch.setattr(ws_driver, "_send_and_recv", fake_send_and_recv)
+    stats = ws_driver.Stats()
+    emitted_stats: list[dict[str, float | int | bool | list[dict[str, str]]]] = []
+
+    async def emit_stats(_force: bool) -> None:
+        emitted_stats.append(stats.snapshot())
+
+    await ws_driver._load_single_conversation(
+        ws_url="ws://unit-test",
+        stats=stats,
+        emit=lambda _event_type, _data: asyncio.sleep(0),
+        n_messages=2,
+        interval_ms=0,
+        emit_stats=emit_stats,
+    )
+
+    assert any(snapshot["active_connections"] == 1 for snapshot in emitted_stats)
+    assert any(snapshot["ack"] >= 1 for snapshot in emitted_stats)
+    assert emitted_stats[-1]["active_connections"] == 0
+
+
+@pytest.mark.asyncio
 async def test_load_single_conversation_remaining_detail_and_exception_paths(monkeypatch):
     emitted: list[tuple[str, dict]] = []
 

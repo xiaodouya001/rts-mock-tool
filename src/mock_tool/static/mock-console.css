@@ -38,6 +38,9 @@
   /* Text color on solid buttons (primary and filled danger/success hover states) */
   --btn-on-solid: #f8fafc;
 }
+[hidden] {
+  display: none !important;
+}
 [data-theme="night-blue"] {
   --bg: #0f172a;
   --bg-elevated: #111b33;
@@ -314,6 +317,94 @@ header .tag {
   overflow-x: auto;
   overflow-y: auto;
   padding: 14px 18px;
+}
+#mock-tool-empty-state {
+  min-height: calc(100vh - 88px);
+  display: grid;
+  place-items: start center;
+  padding: clamp(32px, 8vh, 72px) 24px 40px;
+}
+.mock-tool-empty-state-card {
+  position: relative;
+  width: min(760px, 100%);
+  padding: 34px 36px 30px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-strong));
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 22%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg2) 92%, white 8%), color-mix(in srgb, var(--bg-elevated) 94%, black 6%));
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+.mock-tool-empty-state-card::before {
+  content: '';
+  position: absolute;
+  inset: -60px auto auto -40px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--yellow) 18%, transparent);
+  filter: blur(20px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.mock-tool-empty-state-kicker {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: var(--fs-overline);
+  font-weight: var(--fw-overline);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+.mock-tool-empty-state-title {
+  position: relative;
+  z-index: 1;
+  margin-top: 18px;
+  font-size: clamp(28px, 4vw, 38px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  color: var(--text);
+}
+.mock-tool-empty-state-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 58ch;
+  margin-top: 14px;
+  font-size: 16px;
+  line-height: 1.72;
+  color: color-mix(in srgb, var(--text) 74%, var(--text2));
+}
+.mock-tool-empty-state-flags {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 22px;
+}
+.mock-tool-empty-state-flags code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-strong));
+  background: color-mix(in srgb, var(--bg3) 84%, var(--accent) 16%);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 .control-panel {
   min-height: 0;

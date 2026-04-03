@@ -376,3 +376,4 @@ async def test_open_ws_uses_override_headers_even_when_auth_is_disabled():
         open_timeout=30,
         additional_headers={"Authorization": "Bearer invalid.jwt.token"},
     )
+

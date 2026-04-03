@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="__MOCK_TOOL_BASE_URL__/static/mock-console.css">
+<link rel="stylesheet" href="__MOCK_TOOL_BASE_URL__/static/mock-console.css?v=__MOCK_TOOL_ASSET_REV__">
 </head>
 <body>
 
@@ -31,8 +31,19 @@
   </div>
 </header>
 
-<div class="panel" id="mock-tool-empty-state" hidden>
-  <div class="panel-body">No UI sections are enabled. Set at least one <code>MOCK_CLIENT_SHOW_*</code> flag to <code>true</code>.</div>
+<div id="mock-tool-empty-state" hidden>
+  <section class="mock-tool-empty-state-card" aria-live="polite">
+    <div class="mock-tool-empty-state-kicker">UI Hidden By Config</div>
+    <h2 class="mock-tool-empty-state-title">This page is empty because all UI section flags are off</h2>
+    <p class="mock-tool-empty-state-copy">
+      Set any <code>MOCK_CLIENT_SHOW_*</code> flag to <code>true</code>, restart the mock tool, then refresh this page.
+    </p>
+    <div class="mock-tool-empty-state-flags">
+      <code>MOCK_CLIENT_SHOW_MOCK_LIVE_CHAT=true</code>
+      <code>MOCK_CLIENT_SHOW_SCENARIO_TESTS=true</code>
+      <code>MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST=true</code>
+    </div>
+  </section>
 </div>
 
 <!-- ====== Tab 1: Mock Live-Chat ====== -->
@@ -397,7 +408,7 @@
 <script>
 window.__MOCK_TOOL_BASE_PATH__ = "__MOCK_TOOL_BASE_PATH_VALUE__";
 </script>
-<script src="__MOCK_TOOL_BASE_URL__/static/mock-console.js"></script>
+<script src="__MOCK_TOOL_BASE_URL__/static/mock-console.js?v=__MOCK_TOOL_ASSET_REV__"></script>
 </body>
 </html>
 

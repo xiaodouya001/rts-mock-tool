@@ -225,6 +225,7 @@ class Stats:
 # ---------------------------------------------------------------------------
 
 EventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
+LoadStatsEmitCallback = Callable[[bool], Coroutine[Any, Any, None]]
 
 
 # ---------------------------------------------------------------------------
@@ -1128,6 +1129,7 @@ async def _load_single_conversation(
     n_messages: int,
     interval_ms: float,
     *,
+    emit_stats: LoadStatsEmitCallback | None = None,
     sse_register_cid: bool = False,
     stop_event: asyncio.Event | None = None,
 ) -> None:
@@ -1153,9 +1155,13 @@ async def _load_single_conversation(
         detail, srv_resp = _format_ws_connect_error(e)
         stats.record_load_error(stage="connect", cid=cid, detail=detail, server_resp=srv_resp)
         await emit("load_error", {"cid": cid, "stage": "connect", "error": detail, "server_resp": srv_resp})
+        if emit_stats is not None:
+            await emit_stats(False)
         return
 
     stats.active_connections += 1
+    if emit_stats is not None:
+        await emit_stats(False)
     try:
         for seq in range(ongoing_count):
             if stop_event and stop_event.is_set():
@@ -1190,6 +1196,8 @@ async def _load_single_conversation(
                     "load_error",
                     {"cid": cid, "stage": "ongoing", "seq": seq, "error": detail, "server_resp": resp},
                 )
+            if emit_stats is not None:
+                await emit_stats(False)
             if interval > 0:
                 await asyncio.sleep(interval)
 
@@ -1233,11 +1241,17 @@ async def _load_single_conversation(
                     "server_resp": resp,
                 },
             )
+        if emit_stats is not None:
+            await emit_stats(False)
     except Exception as e:
         stats.record_load_error(stage="exception", cid=cid, detail=repr(e))
         await emit("load_error", {"cid": cid, "stage": "exception", "error": str(e)})
+        if emit_stats is not None:
+            await emit_stats(False)
     finally:
         stats.active_connections -= 1
+        if emit_stats is not None:
+            await emit_stats(False)
         try:
             await ws.close()
         except Exception:
@@ -1265,6 +1279,8 @@ async def run_load_test(
     """
     err_sse_cap = min(2000, max(100, concurrency + 200))
     err_sse_left = err_sse_cap
+    last_stats_emit_at = 0.0
+    stats_emit_interval_sec = 0.15
 
     async def emit_throttled(event_type: str, data: dict[str, Any]) -> None:
         nonlocal err_sse_left
@@ -1273,6 +1289,14 @@ async def run_load_test(
                 return
             err_sse_left -= 1
         await emit(event_type, data)
+
+    async def emit_progress_stats(force: bool = False) -> None:
+        nonlocal last_stats_emit_at
+        now = time.monotonic()
+        if not force and now - last_stats_emit_at < stats_emit_interval_sec:
+            return
+        last_stats_emit_at = now
+        await emit_throttled("stats", stats.snapshot())
 
     await emit_throttled("stats", stats.snapshot())
     sem = asyncio.Semaphore(concurrency)
@@ -1292,6 +1316,7 @@ async def run_load_test(
                 emit_throttled,
                 messages_per_conv,
                 interval_ms,
+                emit_stats=emit_progress_stats,
                 sse_register_cid=False,
                 stop_event=stop_event,
             )

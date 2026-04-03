@@ -139,9 +139,22 @@ def test_index_endpoint_returns_static_html(monkeypatch):
     assert root_response.status_code == 404
     assert response.status_code == 200
     assert "Mock" in response.text
-    assert f'{UI_PREFIX}/static/mock-console.css' in response.text
+    assert f'{UI_PREFIX}/static/mock-console.css?v=' in response.text
+    assert f'{UI_PREFIX}/static/mock-console.js?v=' in response.text
     assert "window.__MOCK_TOOL_BASE_PATH__" in response.text
+    assert "mock-tool-empty-state-card" in response.text
+    assert "all UI section flags are off" in response.text
+    assert "MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST=true" in response.text
     assert UI_PREFIX in response.text
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+
+
+def test_static_css_preserves_hidden_attribute_behavior():
+    css = (server_mod.STATIC_DIR / "mock-console.css").read_text(encoding="utf-8")
+
+    assert "[hidden]" in css
+    assert "display: none !important;" in css
+    assert ".mock-tool-empty-state-card" in css
 
 
 def test_health_endpoint_returns_ok():
@@ -160,6 +173,7 @@ async def test_index_uses_empty_root_path_when_request_has_no_mount_prefix():
 
     assert response.status_code == 200
     assert "__MOCK_TOOL_BASE_URL__" not in response.body.decode("utf-8")
+    assert "__MOCK_TOOL_ASSET_REV__" not in response.body.decode("utf-8")
 
 
 @pytest.mark.asyncio
