@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -723,7 +724,7 @@ async def test_load_single_conversation_emits_progress_stats_during_run(monkeypa
     stats = ws_driver.Stats()
     emitted_stats: list[dict[str, float | int | bool | list[dict[str, str]]]] = []
 
-    async def emit_stats(_force: bool) -> None:
+    async def emit_stats() -> None:
         emitted_stats.append(stats.snapshot())
 
     await ws_driver._load_single_conversation(
@@ -738,6 +739,55 @@ async def test_load_single_conversation_emits_progress_stats_during_run(monkeypa
     assert any(snapshot["active_connections"] == 1 for snapshot in emitted_stats)
     assert any(snapshot["ack"] >= 1 for snapshot in emitted_stats)
     assert emitted_stats[-1]["active_connections"] == 0
+
+
+@pytest.mark.asyncio
+async def test_load_single_conversation_emits_progress_stats_on_connect_and_exception_errors(monkeypatch):
+    emitted_stats: list[dict[str, Any]] = []
+
+    async def emit_stats() -> None:
+        emitted_stats.append(stats.snapshot())
+
+    stats = ws_driver.Stats()
+
+    class _HandshakeError(RuntimeError):
+        pass
+
+    handshake_error = _HandshakeError("bad handshake")
+    handshake_error.response = SimpleNamespace(status_code=400, body=b'{"error":{"code":"E1003","message":"bad"}}')
+    monkeypatch.setattr(ws_driver, "_open_ws", AsyncMock(side_effect=handshake_error))
+    await ws_driver._load_single_conversation(
+        ws_url="ws://unit-test",
+        stats=stats,
+        emit=lambda _event_type, _data: asyncio.sleep(0),
+        n_messages=1,
+        interval_ms=0,
+        emit_stats=emit_stats,
+    )
+
+    assert emitted_stats[-1]["error"] == 1
+
+    emitted_stats.clear()
+    stats = ws_driver.Stats()
+    ws = _FakeWs()
+    monkeypatch.setattr(ws_driver, "_open_ws", AsyncMock(return_value=ws))
+    monkeypatch.setattr(
+        ws_driver,
+        "_send_and_recv",
+        AsyncMock(side_effect=RuntimeError("send failed")),
+    )
+    await ws_driver._load_single_conversation(
+        ws_url="ws://unit-test",
+        stats=stats,
+        emit=lambda _event_type, _data: asyncio.sleep(0),
+        n_messages=1,
+        interval_ms=0,
+        emit_stats=emit_stats,
+    )
+
+    assert any(snapshot["active_connections"] == 1 for snapshot in emitted_stats)
+    assert emitted_stats[-1]["active_connections"] == 0
+    assert emitted_stats[-1]["error"] == 1
 
 
 @pytest.mark.asyncio
@@ -812,6 +862,56 @@ async def test_load_single_conversation_remaining_detail_and_exception_paths(mon
         interval_ms=0,
     )
     assert stats.sent == 1
+
+
+@pytest.mark.asyncio
+async def test_run_load_test_emits_intermediate_stats_from_driver_progress(monkeypatch):
+    emitted: list[tuple[str, dict]] = []
+    monotonic_values = [0.0, 0.05, 0.10, 0.40, 0.80]
+    monotonic_index = {"value": 0}
+
+    async def emit(event_type: str, data: dict) -> None:
+        emitted.append((event_type, data))
+
+    async def fake_load(_ws_url, stats, _emit_fn, *_args, emit_stats=None, **_kwargs):
+        stats.active_connections = 1
+        stats.sent = 5
+        if emit_stats is not None:
+            await emit_stats()
+        stats.ack = 4
+        if emit_stats is not None:
+            await emit_stats()
+        stats.error = 1
+        if emit_stats is not None:
+            await emit_stats()
+        stats.active_connections = 0
+
+    monkeypatch.setattr(ws_driver, "_load_single_conversation", fake_load)
+    def stepped_monotonic():
+        value = monotonic_values[min(monotonic_index["value"], len(monotonic_values) - 1)]
+        monotonic_index["value"] += 1
+        return value
+
+    monkeypatch.setattr(ws_driver.time, "monotonic", stepped_monotonic)
+    stats = ws_driver.Stats()
+    stats.start_time = 0.0
+
+    await ws_driver.run_load_test(
+        ws_url="ws://unit-test",
+        stats=stats,
+        emit=emit,
+        concurrency=1,
+        messages_per_conv=1,
+        interval_ms=0,
+        ramp_up_ms=0,
+    )
+
+    stats_events = [data for event_type, data in emitted if event_type == "stats"]
+    assert len(stats_events) == 3
+    assert stats_events[0]["sent"] == 0
+    assert stats_events[1]["sent"] == 5
+    assert stats_events[1]["ack"] == 4
+    assert stats_events[2]["error"] == 1
 
 
 @pytest.mark.asyncio
