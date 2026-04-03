@@ -299,6 +299,8 @@ async def test_session_helpers_cover_remaining_ack_branches(monkeypatch):
         ws_driver.scenario_e08_invalid_timestamp,
         ws_driver.scenario_e14_conversation_id_mismatch,
         ws_driver.scenario_e15_business_rule_violation,
+        ws_driver.scenario_e16_second_concurrent_sender,
+        ws_driver.scenario_e17_invalid_bearer_jwt,
         ws_driver.scenario_g_session_complete,
     ],
 )
@@ -308,7 +310,7 @@ async def test_scenarios_return_connect_error_when_open_ws_fails(monkeypatch, sc
     result = await scenario_fn("ws://unit-test", lambda _event_type, _data: asyncio.sleep(0))
 
     assert result.passed is False
-    assert result.steps[0]["action"] == "connect"
+    assert result.steps[0]["action"].startswith("connect")
 
 
 @pytest.mark.asyncio
@@ -501,6 +503,57 @@ async def test_scenario_e01_covers_expected_and_unexpected_handshake_outcomes(mo
     )
     assert result.passed is False
     ws.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_scenario_e16_and_e17_cover_handshake_guardrails(monkeypatch):
+    class _HandshakeError(RuntimeError):
+        pass
+
+    err = _HandshakeError("second sender rejected")
+    err.response = SimpleNamespace(
+        status_code=403,
+        body=b'{"error":{"code":"E1009","message":"conflict"}}',
+    )
+    primary_ws = _FakeWs(close_side_effect=RuntimeError("close failed"))
+    monkeypatch.setattr(ws_driver, "_open_ws", AsyncMock(side_effect=[primary_ws, err]))
+    result = await ws_driver.scenario_e16_second_concurrent_sender(
+        "ws://unit-test",
+        lambda _event_type, _data: asyncio.sleep(0),
+    )
+    assert result.passed is True
+    primary_ws.close.assert_awaited_once()
+
+    err = _HandshakeError("auth rejected")
+    err.response = SimpleNamespace(
+        status_code=401,
+        body=b'{"error":{"code":"E1010","message":"auth failed"}}',
+    )
+    monkeypatch.setattr(ws_driver, "_open_ws", AsyncMock(side_effect=err))
+    result = await ws_driver.scenario_e17_invalid_bearer_jwt(
+        "ws://unit-test",
+        lambda _event_type, _data: asyncio.sleep(0),
+    )
+    assert result.passed is True
+
+    primary_ws = _FakeWs()
+    monkeypatch.setattr(ws_driver, "_open_ws", AsyncMock(side_effect=[primary_ws, _FakeWs()]))
+    result = await ws_driver.scenario_e16_second_concurrent_sender(
+        "ws://unit-test",
+        lambda _event_type, _data: asyncio.sleep(0),
+    )
+    assert result.passed is False
+    primary_ws.close.assert_awaited_once()
+
+    success_ws = _FakeWs()
+    monkeypatch.setattr(ws_driver, "_open_ws", AsyncMock(return_value=success_ws))
+    result = await ws_driver.scenario_e17_invalid_bearer_jwt(
+        "ws://unit-test",
+        lambda _event_type, _data: asyncio.sleep(0),
+    )
+    assert result.passed is False
+    assert "AUTH_ENABLED=false" in result.steps[0]["error"]
+    success_ws.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

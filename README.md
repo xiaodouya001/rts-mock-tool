@@ -13,7 +13,8 @@ Use the `transcribe_service` project's `docker-compose.yml`, or any equivalent l
 ```bash
 cp .env.example .env
 python -m realtime_transcribe_service.main
-# Default WebSocket endpoint: ws://127.0.0.1:8080/ws/v1/realtime-transcriptions
+# Default WebSocket endpoint from the current sample config:
+# ws://127.0.0.1:8080/transcribe-svc/ws/v1/realtime-transcriptions
 ```
 
 The service keeps its own runtime config in its own `.env`. That file does not configure the mock tool.
@@ -34,7 +35,7 @@ cp .env.example .env
 
 Supported mock-tool variables (see `.env.example` for grouping):
 
-**Server:** `MOCK_CLIENT_HOST`, `MOCK_CLIENT_PORT`, `MOCK_CLIENT_LOG_LEVEL`, `MOCK_CLIENT_LOG_FORMAT`
+**Server:** `MOCK_CLIENT_PORT`, `MOCK_CLIENT_LOG_LEVEL`, `MOCK_CLIENT_LOG_FORMAT`, `MOCK_CLIENT_URL_PATH_PREFIX`, `MOCK_CLIENT_SHOW_MOCK_LIVE_CHAT`, `MOCK_CLIENT_SHOW_SCENARIO_TESTS`, `MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST`, optional `MOCK_CLIENT_HOST` (defaults to `0.0.0.0`)
 
 **WebSocket target:** `MOCK_CLIENT_DEFAULT_WS_URL`
 
@@ -56,6 +57,14 @@ Authorization: Bearer <token>
 The mock tool only uses its own environment variables and `.env`. It does not read the main service `.env`.
 
 When `AUTH_ENABLED=false`, the mock tool does not generate a token and does not send `Authorization`, even if `MOCK_CLIENT_AUTH_TOKEN` or `MOCK_CLIENT_AUTH_SIGNING_MATERIAL` is configured.
+
+UI visibility defaults to showing all three tabs. To hide a section from the homepage, set its flag to `false` in the mock-tool `.env`:
+
+```bash
+MOCK_CLIENT_SHOW_MOCK_LIVE_CHAT=false
+MOCK_CLIENT_SHOW_SCENARIO_TESTS=true
+MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST=false
+```
 
 If you still want the mock tool to generate one explicit token for copy/paste or external callers, run:
 
@@ -107,7 +116,7 @@ pytest
 python -m mock_tool.server
 ```
 
-Then open **http://127.0.0.1:8088** in the browser.
+Then open **http://127.0.0.1:8088/transcribe-svc-mock-tool** in the browser.
 
 ## UI Overview
 
@@ -124,10 +133,10 @@ Real-time metrics such as sent count, ACK count, errors, active connections, TPS
 | Control | Description |
 |------|------|
 | Server WebSocket URL | Set on the mock server (`MOCK_CLIENT_DEFAULT_WS_URL` in `.env` or environment). Not shown in the UI; used for scenarios, load tests, Live-Chat, and Kafka replay. |
-| Scenario test groups | **Group 1: Uses the scenario control value**: `N-01`, `N-02`, `N-03`, `E-09`. **Group 2: Fixed error scenarios**: `E-01`, `E-04`, `E-05`, `E-06`, `E-07`, `E-08`, `E-14`, `E-15` |
+| Scenario test groups | **Group 1: Uses the scenario control value**: `N-01`, `N-02`, `N-03`, `E-09`. **Group 2: Fixed error scenarios**: `E-01`, `E-04`, `E-05`, `E-06`, `E-07`, `E-08`, `E-14`, `E-15`, `E-16`, `E-17` |
 | Benchmark preset | Fills the `300 / 400 / 500` benchmark presets with the values used during service-side concurrency tuning |
 | Scenario control value | The meaning changes by scenario; see the notes below |
-| Run all | Executes `N-01 -> N-02 -> N-03 -> E-01 -> E-04 -> E-05 -> E-06 -> E-07 -> E-08 -> E-09 -> E-14 -> E-15` in order |
+| Run all | Executes `N-01 -> N-02 -> N-03 -> E-01 -> E-04 -> E-05 -> E-06 -> E-07 -> E-08 -> E-09 -> E-14 -> E-15 -> E-16 -> E-17` in order |
 | Concurrent load test | Runs a normal success-path loop with multiple conversations. Each connection sends several `SESSION_ONGOING` events followed by one `SESSION_COMPLETE` |
 | Concurrency / messages per connection / interval | `concurrency` is the number of simultaneously active conversations. `messages per connection` includes the final `SESSION_COMPLETE`. `interval` is the delay between messages within the same connection |
 | Start / stop | Starts or stops the current load-test run |
@@ -204,7 +213,11 @@ Runtime behavior:
 | `E-09` | `E-09` | Send `seq 0`, then jump to `seq=max(2, N)` | `ERROR(E1006)` + close `1008` |
 | `E-14` | `E-14` | Use different `conversationId` values in the query string and body | `ERROR(E1009)` + close `1008` |
 | `E-15` | `E-15` | Build a message that violates a business rule, such as `isFinal=false` | `ERROR(E1009)` + close `1008` |
+| `E-16` | `E-16` | Establish one sender connection, then try to open a second sender for the same `conversationId` | HTTP `403` + `E1009` |
+| `E-17` | `E-17` | Send an invalid `Authorization: Bearer <JWT>` header during the handshake | HTTP `401` + `E1010` |
 
+> `E-16` requires the RT deployment to enforce the single-sender guard, and `E-17` requires handshake authentication to be enabled.
+>
 > Scenarios such as `E-02`, `E-03`, `E-10`, `E-11`, `E-12`, `E-13`, and `N-04` depend on service state, connection saturation, or failure injection and therefore cannot be triggered reliably by a normal client-only flow.
 
 ## HTTP API
@@ -213,43 +226,43 @@ The mock UI also exposes HTTP endpoints:
 
 ```bash
 # Run a single scenario
-curl -X POST "http://127.0.0.1:8088/api/scenario/run?name=N-01&n_messages=5"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/scenario/run?name=N-01&n_messages=5"
 
 # Run the whole scenario playlist
-curl -X POST "http://127.0.0.1:8088/api/scenario/run-all"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/scenario/run-all"
 
 # Start load testing: 10 concurrent conversations, 10 messages each, 20ms interval
-curl -X POST "http://127.0.0.1:8088/api/load/start?concurrency=10&messages_per_conv=10&interval_ms=20"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/load/start?concurrency=10&messages_per_conv=10&interval_ms=20"
 
 # Stop load testing
-curl -X POST "http://127.0.0.1:8088/api/load/stop"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/load/stop"
 
 # Read status, including recent error summaries
-curl "http://127.0.0.1:8088/api/status"
+curl "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/status"
 
 # Server config JSON (Kafka bootstrap/topic and ws_url for tools; Scenario tab shows bootstrap/topic only)
-curl "http://127.0.0.1:8088/api/ui-config"
+curl "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/ui-config"
 
 # Start Kafka consumption (bootstrap/topic from MOCK_CLIENT_KAFKA_* or KAFKA_* fallbacks)
-curl -X POST "http://127.0.0.1:8088/api/kafka/start?conversation_id=my-conversation-id"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/kafka/start?conversation_id=my-conversation-id"
 
 # Stop Kafka consumption
-curl -X POST "http://127.0.0.1:8088/api/kafka/stop"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/kafka/stop"
 
 # Preview a Live-Chat CSV
-curl -X POST "http://127.0.0.1:8088/api/live/preview" \
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/live/preview" \
   -H "Content-Type: application/json" \
   -d "{\"csv_text\":\"speaker,transcript\nAgent,hello\",\"csv_filename\":\"chat.csv\"}"
 
 # Start Mock Live-Chat
-curl -X POST "http://127.0.0.1:8088/api/live/start" \
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/live/start" \
   -H "Content-Type: application/json" \
   -d "{\"csv_text\":\"speaker,transcript\nAgent,hello\",\"csv_filename\":\"chat.csv\",\"conversation_id\":\"livechat-demo-1\",\"chars_per_second\":18,\"pace_jitter_pct\":0.15}"
 
 # Stop / clear / inspect Live-Chat state
-curl -X POST "http://127.0.0.1:8088/api/live/stop"
-curl -X POST "http://127.0.0.1:8088/api/live/clear"
-curl "http://127.0.0.1:8088/api/live/status"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/live/stop"
+curl -X POST "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/live/clear"
+curl "http://127.0.0.1:8088/transcribe-svc-mock-tool/api/live/status"
 ```
 
 ## File Layout

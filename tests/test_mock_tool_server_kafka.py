@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from mock_tool.server import app
 import mock_tool.server as server_mod
 
+UI_PREFIX = server_mod.SETTINGS.url_path_prefix
+
 
 def test_kafka_conversations_endpoint_returns_inventory(monkeypatch):
     manager = MagicMock()
@@ -31,7 +33,7 @@ def test_kafka_conversations_endpoint_returns_inventory(monkeypatch):
     )
 
     with TestClient(app) as client:
-        resp = client.get("/api/kafka/conversations")
+        resp = client.get(f"{UI_PREFIX}/api/kafka/conversations")
 
     assert resp.status_code == 200
     assert resp.json()["conversation_count"] == 2
@@ -44,6 +46,6 @@ def test_kafka_start_endpoint_requires_selected_conversation_id(monkeypatch):
     monkeypatch.setattr(server_mod, "_live_chat_manager", manager)
 
     with TestClient(app) as client:
-        resp = client.post("/api/kafka/start")
+        resp = client.post(f"{UI_PREFIX}/api/kafka/start")
 
     assert resp.status_code == 422

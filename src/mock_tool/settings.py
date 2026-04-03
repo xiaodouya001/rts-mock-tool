@@ -115,6 +115,27 @@ def _parse_kafka_mode(name: str, value: str) -> Literal["local", "aws_msk"]:
     raise ValueError(f"{name} must be one of: local, aws_msk")
 
 
+def normalize_url_path_prefix_str(raw: str) -> str:
+    """Normalize a URL path prefix: empty disables it; otherwise ``/abc`` with no trailing slash."""
+    if not isinstance(raw, str):
+        return ""
+    s = raw.strip()
+    if not s:
+        return ""
+    if "\n" in s or "\r" in s or ".." in s:
+        raise ValueError(
+            "MOCK_CLIENT_URL_PATH_PREFIX must not contain '..' or newline characters"
+        )
+    if not s.startswith("/"):
+        s = "/" + s
+    while "//" in s:
+        s = s.replace("//", "/")
+    s = s.rstrip("/")
+    if not s:
+        return ""
+    return s
+
+
 @dataclass(frozen=True)
 class MockClientSettings:
     host: str
@@ -133,6 +154,10 @@ class MockClientSettings:
     kafka_aws_region: str | None
     kafka_ssl_ca_file: str | None
     kafka_aws_debug_creds: bool
+    url_path_prefix: str = "/transcribe-svc-mock-tool"
+    show_mock_live_chat: bool = True
+    show_scenario_tests: bool = True
+    show_concurrent_load_test: bool = True
 
 
 def build_auth_claims(
@@ -207,11 +232,26 @@ def get_settings() -> MockClientSettings:
             "MOCK_CLIENT_LOG_FORMAT",
             _get_setting("MOCK_CLIENT_LOG_FORMAT", "auto"),
         ),
+        url_path_prefix=normalize_url_path_prefix_str(
+            _get_setting("MOCK_CLIENT_URL_PATH_PREFIX", "/transcribe-svc-mock-tool")
+        ),
+        show_mock_live_chat=_parse_bool(
+            "MOCK_CLIENT_SHOW_MOCK_LIVE_CHAT",
+            _get_setting("MOCK_CLIENT_SHOW_MOCK_LIVE_CHAT", "true"),
+        ),
+        show_scenario_tests=_parse_bool(
+            "MOCK_CLIENT_SHOW_SCENARIO_TESTS",
+            _get_setting("MOCK_CLIENT_SHOW_SCENARIO_TESTS", "true"),
+        ),
+        show_concurrent_load_test=_parse_bool(
+            "MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST",
+            _get_setting("MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST", "true"),
+        ),
         default_ws_url=_require_non_empty(
             "MOCK_CLIENT_DEFAULT_WS_URL",
             _get_setting(
                 "MOCK_CLIENT_DEFAULT_WS_URL",
-                "ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
+                "ws://127.0.0.1:8080/transcribe-svc/ws/v1/realtime-transcriptions",
             ),
         ),
         auth_enabled=_parse_bool(

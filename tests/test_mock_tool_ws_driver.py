@@ -40,7 +40,7 @@ def disable_ambient_auth_token(monkeypatch):
 async def live_ws_url(unused_tcp_port: int) -> str:
     app = FastAPI()
 
-    @app.websocket("/ws/v1/realtime-transcriptions")
+    @app.websocket("/transcribe-svc/ws/v1/realtime-transcriptions")
     async def realtime_transcriptions(websocket: WebSocket) -> None:
         cid = websocket.query_params.get("conversationId")
         await websocket.accept()
@@ -109,7 +109,7 @@ async def live_ws_url(unused_tcp_port: int) -> str:
         pytest.fail("mock scenario test server did not start")
 
     try:
-        yield f"ws://127.0.0.1:{unused_tcp_port}/ws/v1/realtime-transcriptions"
+        yield f"ws://127.0.0.1:{unused_tcp_port}/transcribe-svc/ws/v1/realtime-transcriptions"
     finally:
         server.should_exit = True
         await task
@@ -351,4 +351,28 @@ async def test_open_ws_uses_explicit_auth_token_over_generated_token():
         "ws://unit-test?conversationId=conv-1",
         open_timeout=30,
         additional_headers={"Authorization": "Bearer explicit-token"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_open_ws_uses_override_headers_even_when_auth_is_disabled():
+    fake_ws = AsyncMock()
+
+    with patch.object(
+        ws_driver.websockets,
+        "connect",
+        new=AsyncMock(return_value=fake_ws),
+    ) as connect_mock:
+        ws = await ws_driver._open_ws(
+            "ws://unit-test",
+            "conv-1",
+            retries=1,
+            override_headers={"Authorization": "Bearer invalid.jwt.token"},
+        )
+
+    assert ws is fake_ws
+    connect_mock.assert_awaited_once_with(
+        "ws://unit-test?conversationId=conv-1",
+        open_timeout=30,
+        additional_headers={"Authorization": "Bearer invalid.jwt.token"},
     )

@@ -1,6 +1,7 @@
 
-const API = '';
+const API = window.__MOCK_TOOL_BASE_PATH__ || '';
 const knownConversationIds = new Set();
+const TAB_ORDER = ['livechat', 'scenario', 'loadtest'];
 const SCENARIOS_WITH_N = new Set(['N-01', 'N-02', 'N-03', 'E-09']);
 const LOAD_BENCHMARK_PRESETS = {
   'benchmark-300': { concurrency: 300, messages: 100, interval: 70, rampup: 25000 },
@@ -20,6 +21,8 @@ const SCENARIO_LABELS = {
   'E-09': 'E-09 Sequence Out of Order',
   'E-14': 'E-14 Query/Body conversationId Mismatch',
   'E-15': 'E-15 Business-Rule Validation Failed',
+  'E-16': 'E-16 Second Concurrent Sender',
+  'E-17': 'E-17 Invalid Bearer JWT',
 };
 let kafkaExpandAll = false;
 const _kafkaAllMessages = [];
@@ -36,6 +39,11 @@ let _kafkaActiveConversationId = '';
 let _uiKafkaBootstrap = '';
 let _uiKafkaTopic = '';
 let _uiWsUrl = '';
+let _uiTabVisibility = {
+  livechat: true,
+  scenario: true,
+  loadtest: true,
+};
 const latencyHistory = [];
 let _loadUiRunning = false;
 let liveChatCsvText = '';
@@ -119,22 +127,67 @@ function setTheme(themeName) {
 // ---------------------------------------------------------------------------
 // Tab switching
 // ---------------------------------------------------------------------------
+function _isTabVisible(name) {
+  return _uiTabVisibility[name] !== false;
+}
+
+function _getVisibleTabs() {
+  return TAB_ORDER.filter(_isTabVisible);
+}
+
 function switchTab(name) {
+  const visibleTabs = _getVisibleTabs();
+  const targetName = visibleTabs.includes(name) ? name : (visibleTabs[0] || '');
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-  const target = document.getElementById('tab-' + name);
+  const target = targetName ? document.getElementById('tab-' + targetName) : null;
   if (target) target.classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.tab === name);
+    btn.classList.toggle('active', btn.dataset.tab === targetName);
   });
-  try { localStorage.setItem('mockClient.activeTab', name); } catch (e) {}
+  try {
+    if (targetName) localStorage.setItem('mockClient.activeTab', targetName);
+    else localStorage.removeItem('mockClient.activeTab');
+  } catch (e) {}
 }
-(function restoreTab() {
+
+function restoreTab() {
   try {
     const saved = localStorage.getItem('mockClient.activeTab');
-    const hasPanel = saved && document.getElementById('tab-' + saved);
-    switchTab(hasPanel ? saved : 'livechat');
+    const hasPanel = saved && _isTabVisible(saved) && document.getElementById('tab-' + saved);
+    const fallback = _getVisibleTabs()[0] || '';
+    switchTab(hasPanel ? saved : fallback);
   } catch (e) {}
-})();
+}
+
+function _parseUiBool(value, fallback = true) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function applyTabVisibility() {
+  let visibleCount = 0;
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    const show = _isTabVisible(btn.dataset.tab || '');
+    btn.hidden = !show;
+    if (show) visibleCount += 1;
+  });
+  document.querySelectorAll('.tab-content').forEach((panel) => {
+    const tabName = String(panel.id || '').replace(/^tab-/, '');
+    const show = _isTabVisible(tabName);
+    panel.hidden = !show;
+    if (!show) panel.classList.remove('active');
+  });
+  const nav = document.getElementById('tab-nav');
+  if (nav) nav.hidden = visibleCount === 0;
+  const emptyState = document.getElementById('mock-tool-empty-state');
+  if (emptyState) emptyState.hidden = visibleCount !== 0;
+  restoreTab();
+}
 
 (function initKafkaCidCombobox() {
   document.addEventListener('click', (event) => {
@@ -166,6 +219,11 @@ async function loadUiConfig() {
     _uiKafkaBootstrap = String(data.kafka_bootstrap || '').trim();
     _uiKafkaTopic = String(data.kafka_topic || '').trim();
     _uiWsUrl = String(data.ws_url || '').trim();
+    _uiTabVisibility = {
+      livechat: _parseUiBool(data.show_mock_live_chat, true),
+      scenario: _parseUiBool(data.show_scenario_tests, true),
+      loadtest: _parseUiBool(data.show_concurrent_load_test, true),
+    };
 
     setTruncatingReadonly(
       'kafka-bootstrap-display',
@@ -188,6 +246,13 @@ async function loadUiConfig() {
       ktEl.textContent = '(unavailable)';
       ktEl.title = 'MOCK_CLIENT_KAFKA_TOPIC (server .env)';
     }
+    _uiTabVisibility = {
+      livechat: true,
+      scenario: true,
+      loadtest: true,
+    };
+  } finally {
+    applyTabVisibility();
   }
 }
 
@@ -550,6 +615,8 @@ async function runAllScenarios() {
     'E-09',
     'E-14',
     'E-15',
+    'E-16',
+    'E-17',
   ];
   for (const name of names) {
     await runScenario(name);

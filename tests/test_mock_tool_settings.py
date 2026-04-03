@@ -25,6 +25,10 @@ def test_get_settings_reads_prefixed_environment(monkeypatch):
     monkeypatch.setenv("MOCK_CLIENT_PORT", "9099")
     monkeypatch.setenv("MOCK_CLIENT_LOG_LEVEL", "debug")
     monkeypatch.setenv("MOCK_CLIENT_LOG_FORMAT", "json")
+    monkeypatch.setenv("MOCK_CLIENT_URL_PATH_PREFIX", "mock-ui")
+    monkeypatch.setenv("MOCK_CLIENT_SHOW_MOCK_LIVE_CHAT", "false")
+    monkeypatch.setenv("MOCK_CLIENT_SHOW_SCENARIO_TESTS", "true")
+    monkeypatch.setenv("MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST", "false")
     monkeypatch.setenv("MOCK_CLIENT_DEFAULT_WS_URL", "ws://service.example/ws")
     monkeypatch.setenv("AUTH_ENABLED", "true")
     monkeypatch.setenv("MOCK_CLIENT_AUTH_TOKEN", "token-123")
@@ -40,6 +44,10 @@ def test_get_settings_reads_prefixed_environment(monkeypatch):
     assert settings.port == 9099
     assert settings.log_level == "DEBUG"
     assert settings.log_format == "json"
+    assert settings.url_path_prefix == "/mock-ui"
+    assert settings.show_mock_live_chat is False
+    assert settings.show_scenario_tests is True
+    assert settings.show_concurrent_load_test is False
     assert settings.default_ws_url == "ws://service.example/ws"
     assert settings.auth_enabled is True
     assert settings.auth_token == "token-123"
@@ -65,6 +73,52 @@ def test_get_settings_ignores_service_env_names(monkeypatch):
 
     assert settings.log_level == "INFO"
     assert settings.log_format == "auto"
+
+
+def test_get_settings_uses_prefixed_default_ws_url_when_unset(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.delenv("MOCK_CLIENT_DEFAULT_WS_URL", raising=False)
+
+    settings = mock_settings.get_settings()
+
+    assert (
+        settings.default_ws_url
+        == "ws://127.0.0.1:8080/transcribe-svc/ws/v1/realtime-transcriptions"
+    )
+
+
+def test_get_settings_uses_default_url_path_prefix_when_unset(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.delenv("MOCK_CLIENT_URL_PATH_PREFIX", raising=False)
+
+    settings = mock_settings.get_settings()
+
+    assert settings.url_path_prefix == "/transcribe-svc-mock-tool"
+
+
+def test_get_settings_shows_all_ui_sections_when_unset(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.delenv("MOCK_CLIENT_SHOW_MOCK_LIVE_CHAT", raising=False)
+    monkeypatch.delenv("MOCK_CLIENT_SHOW_SCENARIO_TESTS", raising=False)
+    monkeypatch.delenv("MOCK_CLIENT_SHOW_CONCURRENT_LOAD_TEST", raising=False)
+
+    settings = mock_settings.get_settings()
+
+    assert settings.show_mock_live_chat is True
+    assert settings.show_scenario_tests is True
+    assert settings.show_concurrent_load_test is True
+
+
+def test_normalize_url_path_prefix_str_normalizes_and_rejects_invalid_values():
+    assert mock_settings.normalize_url_path_prefix_str("abc") == "/abc"
+    assert mock_settings.normalize_url_path_prefix_str("/api/v1/") == "/api/v1"
+    assert mock_settings.normalize_url_path_prefix_str("////a////b//") == "/a/b"
+    assert mock_settings.normalize_url_path_prefix_str("   ") == ""
+    assert mock_settings.normalize_url_path_prefix_str("///") == ""
+    assert mock_settings.normalize_url_path_prefix_str(None) == ""  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="MOCK_CLIENT_URL_PATH_PREFIX"):
+        mock_settings.normalize_url_path_prefix_str("/../bad")
 
 
 def test_get_settings_rejects_invalid_port(monkeypatch):

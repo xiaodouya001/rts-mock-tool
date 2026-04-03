@@ -27,7 +27,7 @@ def _patch_live_chat_kafka_settings(monkeypatch):
         lambda: SimpleNamespace(
             kafka_bootstrap="127.0.0.1:9092",
             kafka_topic="AI_STAGING_TRANSCRIPTION",
-            default_ws_url="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions",
+            default_ws_url="ws://127.0.0.1:8080/transcribe-svc/ws/v1/realtime-transcriptions",
             kafka_mode="local",
         ),
     )

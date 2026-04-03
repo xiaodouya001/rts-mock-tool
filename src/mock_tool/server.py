@@ -2,7 +2,7 @@
 
 Startup:
     python -m mock_tool.server
-    # Open http://127.0.0.1:8088 in a browser.
+    # Open http://127.0.0.1:8088/transcribe-svc-mock-tool in a browser.
 """
 
 from __future__ import annotations
@@ -127,18 +127,27 @@ async def lifespan(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 STATIC_DIR = Path(__file__).parent / "static"
-
-app = FastAPI(title="Mock Client", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-
-@app.get("/", response_class=HTMLResponse)
-async def index():
-    html_path = STATIC_DIR / "index.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+INDEX_HTML_PATH = STATIC_DIR / "index.html"
+INDEX_HTML_TEMPLATE = INDEX_HTML_PATH.read_text(encoding="utf-8")
 
 
-@app.get("/api/events")
+def _render_index_html(base_path: str) -> HTMLResponse:
+    normalized_base = base_path.rstrip("/")
+    content = INDEX_HTML_TEMPLATE.replace("__MOCK_TOOL_BASE_URL__", normalized_base)
+    content = content.replace("__MOCK_TOOL_BASE_PATH_VALUE__", normalized_base)
+    return HTMLResponse(content=content)
+
+
+inner_app = FastAPI(title="Mock Client", lifespan=lifespan)
+inner_app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@inner_app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return _render_index_html(str(request.scope.get("root_path", "")))
+
+
+@inner_app.get("/api/events")
 async def sse(request: Request):
     """SSE stream that pushes scenario progress, Kafka messages, and metrics."""
     q: asyncio.Queue[str] = asyncio.Queue(maxsize=50_000)
@@ -173,7 +182,7 @@ async def sse(request: Request):
     )
 
 
-@app.post("/api/scenario/run")
+@inner_app.post("/api/scenario/run")
 async def run_scenario(
     name: str = Query(...),
     n_messages: int = Query(
@@ -208,7 +217,7 @@ async def run_scenario(
     return summary
 
 
-@app.post("/api/scenario/run-all")
+@inner_app.post("/api/scenario/run-all")
 async def run_all_scenarios(
     n_messages: int = Query(5, ge=1, le=100),
 ):
@@ -220,7 +229,7 @@ async def run_all_scenarios(
     return results
 
 
-@app.post("/api/load/start")
+@inner_app.post("/api/load/start")
 async def load_start(
     concurrency: int = Query(
         10,
@@ -293,7 +302,7 @@ async def load_start(
     }
 
 
-@app.post("/api/load/stop")
+@inner_app.post("/api/load/stop")
 async def load_stop():
     """Stop the load test immediately and let cleanup continue in the background."""
     global _load_stop_event
@@ -302,12 +311,12 @@ async def load_stop():
     return {"status": "stopping"}
 
 
-@app.get("/api/status")
+@inner_app.get("/api/status")
 async def get_status():
     return stats.snapshot()
 
 
-@app.get("/api/ui-config")
+@inner_app.get("/api/ui-config")
 async def ui_config():
     """Read-only Kafka and WebSocket targets for the UI (from server settings / .env)."""
     s = SETTINGS
@@ -316,10 +325,14 @@ async def ui_config():
         "kafka_topic": s.kafka_topic,
         "kafka_mode": s.kafka_mode,
         "ws_url": s.default_ws_url,
+        "url_path_prefix": s.url_path_prefix,
+        "show_mock_live_chat": s.show_mock_live_chat,
+        "show_scenario_tests": s.show_scenario_tests,
+        "show_concurrent_load_test": s.show_concurrent_load_test,
     }
 
 
-@app.post("/api/live/preview")
+@inner_app.post("/api/live/preview")
 async def live_preview(request: LiveChatPreviewRequest):
     try:
         return _live_chat_manager.preview_csv(request)
@@ -327,7 +340,7 @@ async def live_preview(request: LiveChatPreviewRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/live/start")
+@inner_app.post("/api/live/start")
 async def live_start(request: LiveChatStartRequest):
     try:
         return await _live_chat_manager.start(request)
@@ -337,12 +350,12 @@ async def live_start(request: LiveChatStartRequest):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.post("/api/live/stop")
+@inner_app.post("/api/live/stop")
 async def live_stop():
     return await _live_chat_manager.stop()
 
 
-@app.post("/api/live/clear")
+@inner_app.post("/api/live/clear")
 async def live_clear():
     try:
         return await _live_chat_manager.clear()
@@ -350,12 +363,12 @@ async def live_clear():
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.get("/api/live/status")
+@inner_app.get("/api/live/status")
 async def live_status():
     return _live_chat_manager.snapshot()
 
 
-@app.post("/api/kafka/start")
+@inner_app.post("/api/kafka/start")
 async def kafka_start(
     conversation_id: str = Query(..., min_length=1),
 ):
@@ -401,7 +414,7 @@ async def kafka_start(
     return {"status": "kafka_consumer_started", "topic": topic, "conversation_id": conversation_id}
 
 
-@app.get("/api/kafka/conversations")
+@inner_app.get("/api/kafka/conversations")
 async def kafka_conversations():
     """Scan the topic once and return distinct conversationId values for selection."""
     try:
@@ -415,7 +428,7 @@ async def kafka_conversations():
         return {"status": "error", "error": str(exc)}
 
 
-@app.post("/api/kafka/stop")
+@inner_app.post("/api/kafka/stop")
 async def kafka_stop():
     global _kafka_viewer, _kafka_forward_task
     if _kafka_forward_task and not _kafka_forward_task.done():
@@ -438,6 +451,27 @@ async def _stats_pusher():
         _broadcast_sse("stats", stats.snapshot())
 
 
+def create_app(settings) -> FastAPI:
+    mount_path = settings.url_path_prefix.rstrip("/")
+    if not mount_path:
+        return inner_app
+
+    root = FastAPI(
+        title="Mock Client",
+        description="Mounted at MOCK_CLIENT_URL_PATH_PREFIX; all UI, API, and static routes live under the prefix.",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    @root.get(mount_path, response_class=HTMLResponse, include_in_schema=False)
+    async def prefixed_index():
+        return _render_index_html(mount_path)
+
+    root.mount(mount_path, inner_app)
+    return root
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
@@ -453,6 +487,9 @@ def main() -> None:
         timeout_graceful_shutdown=3,
         log_config=None,
     )
+
+
+app = create_app(SETTINGS)
 
 
 if __name__ == "__main__":

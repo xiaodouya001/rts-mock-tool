@@ -305,11 +305,12 @@ async def _open_ws(
     ws_url: str,
     conversation_id: str | None,
     auth_token: str | None = None,
+    override_headers: dict[str, str] | None = None,
     retries: int = 3,
     retry_delay: float = 0.5,
 ) -> websockets.WebSocketClientProtocol:
     uri = ws_url if conversation_id is None else f"{ws_url}?conversationId={conversation_id}"
-    headers = _build_ws_headers(auth_token)
+    headers = override_headers if override_headers is not None else _build_ws_headers(auth_token)
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
@@ -360,6 +361,58 @@ def _percentile_ms(samples_sec: list[float], percentile: float) -> float:
     weight = position - lower
     value = ordered[lower] + (ordered[upper] - ordered[lower]) * weight
     return round(value * 1000, 2)
+
+
+async def _expect_handshake_error(
+    *,
+    result: ScenarioResult,
+    emit: EventCallback,
+    action: str,
+    expected_status: int,
+    expected_code: str,
+    unexpected_success_hint: str | None = None,
+    connect: Callable[[], Coroutine[Any, Any, websockets.WebSocketClientProtocol]],
+) -> ScenarioResult:
+    """Run one handshake expected to fail with HTTP + JSON and record the result."""
+    try:
+        ws = await connect()
+    except Exception as exc:
+        detail, srv_resp = _format_ws_connect_error(exc)
+        status_code = getattr(getattr(exc, "response", None), "status_code", None) or getattr(
+            getattr(exc, "response", None), "status", None
+        )
+        step = {
+            "action": action,
+            "resp_type": f"HTTP {status_code}" if status_code is not None else "HTTP ?",
+        }
+        if srv_resp:
+            step["error_code"] = (srv_resp.get("error") or {}).get("code")
+        if status_code != expected_status or step.get("error_code") != expected_code:
+            result.passed = False
+            step["error"] = (
+                f"Expected HTTP {expected_status} / {expected_code}, got: {detail}"
+            )
+        result.steps.append(step)
+        await emit("scenario_step", {"scenario": result.name, "step": step})
+        return result
+
+    result.passed = False
+    error = (
+        f"Handshake unexpectedly succeeded; expected HTTP {expected_status} / {expected_code}"
+    )
+    if unexpected_success_hint:
+        error = f"{error}. {unexpected_success_hint}"
+    step = {
+        "action": action,
+        "error": error,
+    }
+    result.steps.append(step)
+    await emit("scenario_step", {"scenario": result.name, "step": step})
+    try:
+        await ws.close()
+    except Exception:
+        pass
+    return result
 
 
 async def _send_expect_error_and_close(
@@ -705,36 +758,14 @@ async def scenario_e01_missing_query_conversation_id(
 ) -> ScenarioResult:
     """E-01: missing query ``conversationId`` during the handshake should return HTTP 400 / E1003."""
     result = ScenarioResult(name="E-01", passed=True)
-
-    try:
-        ws = await _open_ws(ws_url, None, retries=1)
-    except Exception as e:
-        detail, srv_resp = _format_ws_connect_error(e)
-        status_code = getattr(getattr(e, "response", None), "status_code", None) or getattr(
-            getattr(e, "response", None), "status", None
-        )
-        step = {
-            "action": "connect_without_query",
-            "resp_type": f"HTTP {status_code}" if status_code is not None else "HTTP ?",
-        }
-        if srv_resp:
-            step["error_code"] = (srv_resp.get("error") or {}).get("code")
-        expected_code = "E1003"
-        if status_code != 400 or step.get("error_code") != expected_code:
-            result.passed = False
-            step["error"] = f"Expected HTTP 400 / {expected_code}, got: {detail}"
-        result.steps.append(step)
-        await emit("scenario_step", {"scenario": result.name, "step": step})
-        return result
-
-    result.passed = False
-    result.steps.append({"action": "connect_without_query", "error": "Handshake unexpectedly succeeded; expected HTTP 400 / E1003"})
-    await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
-    try:
-        await ws.close()
-    except Exception:
-        pass
-    return result
+    return await _expect_handshake_error(
+        result=result,
+        emit=emit,
+        action="connect_without_query",
+        expected_status=400,
+        expected_code="E1003",
+        connect=lambda: _open_ws(ws_url, None, retries=1),
+    )
 
 
 async def scenario_d2_schema_error(ws_url: str, emit: EventCallback) -> ScenarioResult:
@@ -971,6 +1002,67 @@ async def scenario_e15_business_rule_violation(ws_url: str, emit: EventCallback)
     return result
 
 
+async def scenario_e16_second_concurrent_sender(
+    ws_url: str,
+    emit: EventCallback,
+) -> ScenarioResult:
+    """E-16: second concurrent sender should be rejected during handshake with HTTP 403 / E1009."""
+    result = ScenarioResult(name="E-16", passed=True)
+    cid = f"mock-E16-{_random_hex(6)}"
+    await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
+
+    try:
+        primary_ws = await _open_ws(ws_url, cid, retries=1)
+    except Exception as exc:
+        result.passed = False
+        result.steps.append({"action": "connect_primary_sender", "error": str(exc)})
+        await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+        return result
+
+    try:
+        await _expect_handshake_error(
+            result=result,
+            emit=emit,
+            action="connect_second_sender",
+            expected_status=403,
+            expected_code="E1009",
+            connect=lambda: _open_ws(ws_url, cid, retries=1),
+        )
+    finally:
+        try:
+            await primary_ws.close()
+        except Exception:
+            pass
+
+    return result
+
+
+async def scenario_e17_invalid_bearer_jwt(
+    ws_url: str,
+    emit: EventCallback,
+) -> ScenarioResult:
+    """E-17: invalid Bearer JWT should be rejected during handshake with HTTP 401 / E1010."""
+    result = ScenarioResult(name="E-17", passed=True)
+    cid = f"mock-E17-{_random_hex(6)}"
+    await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
+    return await _expect_handshake_error(
+        result=result,
+        emit=emit,
+        action="connect_with_invalid_bearer",
+        expected_status=401,
+        expected_code="E1010",
+        unexpected_success_hint=(
+            "The target service likely has AUTH_ENABLED=false or is not loading the expected JWT auth config"
+        ),
+        connect=lambda: _open_ws(
+            ws_url,
+            cid,
+            retries=1,
+            override_headers={"Authorization": "Bearer invalid.jwt.token"},
+        ),
+    )
+
+
 async def scenario_g_session_complete(
     ws_url: str,
     emit: EventCallback,
@@ -1020,6 +1112,8 @@ SCENARIOS: dict[str, Any] = {
     "E-09": scenario_c_out_of_order,
     "E-14": scenario_e14_conversation_id_mismatch,
     "E-15": scenario_e15_business_rule_violation,
+    "E-16": scenario_e16_second_concurrent_sender,
+    "E-17": scenario_e17_invalid_bearer_jwt,
 }
 
 

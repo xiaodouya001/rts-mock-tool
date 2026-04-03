@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 import mock_tool.server as server_mod
 from mock_tool.ws_driver import ScenarioResult
 
+UI_PREFIX = server_mod.SETTINGS.url_path_prefix
+
 
 @pytest.fixture(autouse=True)
 def isolate_server_globals(monkeypatch):
@@ -98,16 +100,58 @@ async def test_lifespan_cleans_up_running_resources(monkeypatch):
         await forward_task
 
 
+@pytest.mark.asyncio
+async def test_lifespan_handles_idle_resources_without_optional_state(monkeypatch):
+    pusher_started = asyncio.Event()
+
+    async def fake_stats_pusher():
+        pusher_started.set()
+        await asyncio.Event().wait()
+
+    done_load_task = asyncio.create_task(asyncio.sleep(0))
+    done_forward_task = asyncio.create_task(asyncio.sleep(0))
+    await done_load_task
+    await done_forward_task
+    manager = SimpleNamespace(shutdown=AsyncMock(return_value=None))
+
+    monkeypatch.setattr(server_mod, "_stats_pusher", fake_stats_pusher)
+    monkeypatch.setattr(server_mod, "_load_stop_event", None)
+    monkeypatch.setattr(server_mod, "_load_task", done_load_task)
+    monkeypatch.setattr(server_mod, "_kafka_forward_task", done_forward_task)
+    monkeypatch.setattr(server_mod, "_kafka_viewer", None)
+    monkeypatch.setattr(server_mod, "_live_chat_manager", manager)
+
+    async with server_mod.lifespan(server_mod.app):
+        await pusher_started.wait()
+
+    manager.shutdown.assert_awaited_once()
+
+
 def test_index_endpoint_returns_static_html(monkeypatch):
     manager = MagicMock()
     manager.shutdown = AsyncMock(return_value=None)
     monkeypatch.setattr(server_mod, "_live_chat_manager", manager)
 
     with TestClient(server_mod.app) as client:
-        response = client.get("/")
+        root_response = client.get("/")
+        response = client.get(UI_PREFIX)
 
+    assert root_response.status_code == 404
     assert response.status_code == 200
     assert "Mock" in response.text
+    assert f'{UI_PREFIX}/static/mock-console.css' in response.text
+    assert "window.__MOCK_TOOL_BASE_PATH__" in response.text
+    assert UI_PREFIX in response.text
+
+
+@pytest.mark.asyncio
+async def test_index_uses_empty_root_path_when_request_has_no_mount_prefix():
+    request = SimpleNamespace(scope={})
+
+    response = await server_mod.index(request)
+
+    assert response.status_code == 200
+    assert "__MOCK_TOOL_BASE_URL__" not in response.body.decode("utf-8")
 
 
 @pytest.mark.asyncio
@@ -451,6 +495,12 @@ async def test_stats_pusher_emits_stats_then_propagates_cancellation(monkeypatch
 
     assert broadcasts[0][0] == "stats"
     monkeypatch.setattr(server_mod.asyncio, "sleep", original_sleep)
+
+
+def test_create_app_without_prefix_returns_inner_app():
+    settings = replace(server_mod.SETTINGS, url_path_prefix="")
+
+    assert server_mod.create_app(settings) is server_mod.inner_app
 
 
 def test_main_configures_logging_and_runs_uvicorn(monkeypatch):
