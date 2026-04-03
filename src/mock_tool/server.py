@@ -147,6 +147,11 @@ async def index(request: Request):
     return _render_index_html(str(request.scope.get("root_path", "")))
 
 
+@inner_app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @inner_app.get("/api/events")
 async def sse(request: Request):
     """SSE stream that pushes scenario progress, Kafka messages, and metrics."""

@@ -144,6 +144,14 @@ def test_index_endpoint_returns_static_html(monkeypatch):
     assert UI_PREFIX in response.text
 
 
+def test_health_endpoint_returns_ok():
+    with TestClient(server_mod.app) as client:
+        response = client.get(f"{UI_PREFIX}/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 @pytest.mark.asyncio
 async def test_index_uses_empty_root_path_when_request_has_no_mount_prefix():
     request = SimpleNamespace(scope={})

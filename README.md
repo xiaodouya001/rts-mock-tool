@@ -118,6 +118,14 @@ python -m mock_tool.server
 
 Then open **http://127.0.0.1:8088/transcribe-svc-mock-tool** in the browser.
 
+For ALB or other external health checks, use:
+
+```text
+http://127.0.0.1:8088/transcribe-svc-mock-tool/health
+```
+
+It returns HTTP `200` with `{"status":"ok"}`.
+
 ## UI Overview
 
 The page is split into:
