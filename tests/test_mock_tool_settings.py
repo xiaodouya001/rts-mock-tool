@@ -60,6 +60,16 @@ def test_get_settings_reads_prefixed_environment(monkeypatch):
     assert settings.kafka_aws_region is None
     assert settings.kafka_ssl_ca_file is None
     assert settings.kafka_aws_debug_creds is False
+    assert settings.suppress_health_access_logs is False
+
+
+def test_get_settings_reads_prefixed_health_access_log_toggle(monkeypatch):
+    mock_settings.get_settings.cache_clear()
+    monkeypatch.setenv("MOCK_CLIENT_SUPPRESS_HEALTH_ACCESS_LOGS", "true")
+
+    settings = mock_settings.get_settings()
+
+    assert settings.suppress_health_access_logs is True
 
 
 def test_get_settings_ignores_service_env_names(monkeypatch):

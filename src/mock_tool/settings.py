@@ -154,6 +154,7 @@ class MockClientSettings:
     kafka_aws_region: str | None
     kafka_ssl_ca_file: str | None
     kafka_aws_debug_creds: bool
+    suppress_health_access_logs: bool = False
     url_path_prefix: str = "/transcribe-svc-mock-tool"
     show_mock_live_chat: bool = True
     show_scenario_tests: bool = True
@@ -231,6 +232,10 @@ def get_settings() -> MockClientSettings:
         log_format=_parse_log_format(
             "MOCK_CLIENT_LOG_FORMAT",
             _get_setting("MOCK_CLIENT_LOG_FORMAT", "auto"),
+        ),
+        suppress_health_access_logs=_parse_bool(
+            "MOCK_CLIENT_SUPPRESS_HEALTH_ACCESS_LOGS",
+            _get_setting("MOCK_CLIENT_SUPPRESS_HEALTH_ACCESS_LOGS", "false"),
         ),
         url_path_prefix=normalize_url_path_prefix_str(
             _get_setting("MOCK_CLIENT_URL_PATH_PREFIX", "/transcribe-svc-mock-tool")

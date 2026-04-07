@@ -489,7 +489,11 @@ def create_app(settings) -> FastAPI:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    configure_logging(level=SETTINGS.log_level, format=SETTINGS.log_format)
+    configure_logging(
+        level=SETTINGS.log_level,
+        format=SETTINGS.log_format,
+        suppress_health_access_logs=SETTINGS.suppress_health_access_logs,
+    )
     uvicorn.run(
         app,
         host=SETTINGS.host,

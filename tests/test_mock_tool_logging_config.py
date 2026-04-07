@@ -49,6 +49,38 @@ def test_configure_logging_auto_uses_json_when_not_tty(monkeypatch, capsys):
     assert payload["service"] == lc.SERVICE_NAME
 
 
+def test_configure_logging_can_suppress_health_access_logs(monkeypatch, capsys):
+    monkeypatch.delenv("MOCK_CLIENT_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("MOCK_CLIENT_LOG_FORMAT", raising=False)
+
+    lc.configure_logging(
+        level="INFO",
+        format="json",
+        suppress_health_access_logs=True,
+    )
+    logger = logging.getLogger("uvicorn.access")
+    logger.info(
+        '%s - "%s %s HTTP/%s" %d',
+        "127.0.0.1:1234",
+        "GET",
+        "/transcribe-svc-mock-tool/health",
+        "1.1",
+        200,
+    )
+    logger.info(
+        '%s - "%s %s HTTP/%s" %d',
+        "127.0.0.1:1234",
+        "GET",
+        "/api/status",
+        "1.1",
+        200,
+    )
+
+    output = capsys.readouterr().err
+    assert "/transcribe-svc-mock-tool/health" not in output
+    assert "/api/status" in output
+
+
 def test_configure_logging_console_mode(monkeypatch, capsys):
     monkeypatch.delenv("MOCK_CLIENT_LOG_LEVEL", raising=False)
     monkeypatch.delenv("MOCK_CLIENT_LOG_FORMAT", raising=False)
